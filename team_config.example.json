@@ -1,0 +1,40 @@
+{
+  "_note": "Copy this file to team_config.json and fill in your actual Wekan user data.",
+  "_最後更新": "YYYY-MM-DD",
+  "members": {
+    "wekanUserId001": {
+      "username": "alice",
+      "fullname": "Alice Chen",
+      "role": "Backend Engineer"
+    },
+    "wekanUserId002": {
+      "username": "bob",
+      "fullname": "Bob Lin",
+      "role": "Frontend Engineer"
+    },
+    "wekanUserId003": {
+      "username": "carol",
+      "fullname": "Carol Wang",
+      "role": "Data Analyst"
+    },
+    "wekanUserId004": {
+      "username": "dave",
+      "fullname": "Dave Liu",
+      "role": "DevOps"
+    }
+  },
+  "board": {
+    "name": "Your Board Name",
+    "lists_order": [
+      "Goal & Project Info",
+      "Backlog",
+      "Preparing",
+      "Ready to GO",
+      "Doing",
+      "Waiting",
+      "Review / User Test",
+      "DONE",
+      "Closed"
+    ]
+  }
+}
