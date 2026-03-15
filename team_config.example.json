@@ -35,6 +35,15 @@
       "Review / User Test",
       "DONE",
       "Closed"
-    ]
+    ],
+    "swimlanes_order": [
+      "Project A",
+      "Project B",
+      "Project C",
+      "Shared / Others"
+    ],
+    "_swimlanes_order_note": "Display order of swimlanes in charts and tables. Leave as [] to use the original order from Wekan JSON.",
+    "default_swim_selections": [],
+    "_default_swim_selections_note": "Swimlane names pre-checked in the filter panel. Leave as [] to select all by default."
   }
 }

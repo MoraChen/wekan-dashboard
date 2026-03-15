@@ -60,14 +60,24 @@ swimlanes_map = {s["_id"]: s["title"] for s in data["swimlanes"]}
 # ── 讀取 team_config.json，建立 userId → fullname 對照 ───
 TEAM_CONFIG_PATH = os.path.join(BASE_DIR, "team_config.json")
 fullname_map = {}   # userId → fullname（優先使用，fallback 到 username）
+swim_order_cfg = []         # 主題排序（空 = 依 JSON 原始順序）
+default_swim_sel_cfg = []   # 篩選器預設勾選（空 = 全選）
 if os.path.exists(TEAM_CONFIG_PATH):
     with open(TEAM_CONFIG_PATH, "r", encoding="utf-8") as _f:
         _cfg = json.load(_f)
     for uid, info in _cfg.get("members", {}).items():
         fn = info.get("fullname") or info.get("username") or uid
         fullname_map[uid] = fn
+    _board = _cfg.get("board", {})
+    swim_order_cfg       = _board.get("swimlanes_order", [])
+    default_swim_sel_cfg = _board.get("default_swim_selections", [])
 # 合併：以 fullname_map 覆蓋 users（無對應則保留 username）
 display_users = {uid: fullname_map.get(uid, uname) for uid, uname in users.items()}
+
+# 將 swimlane 設定轉為 JSON 字串（注入 HTML 模板用）
+import json as _json_mod
+SWIM_ORDER_JSON       = _json_mod.dumps(swim_order_cfg,       ensure_ascii=False)
+DEFAULT_SWIM_SEL_JSON = _json_mod.dumps(default_swim_sel_cfg, ensure_ascii=False)
 
 DONE_IDS     = [lid for lid, t in lists_map.items() if "DONE" in t.upper()]
 DOING_IDS    = [lid for lid, t in lists_map.items() if t == "Doing"]
@@ -1324,13 +1334,12 @@ function initFilters() {{
     document.getElementById('t1-list-picker-items').innerHTML = listsHtml;
 
     // Populate swim pickers
-    const DEFAULT_SWIM_SELECTIONS = [
-        '大數據平台','ICD_DRG','深耕計畫','健保申報',
-        'Power BI 數據賦能推動','AI','視圖維護','分享/設備安裝/其他'
-    ];
+    // DEFAULT_SWIM_SELECTIONS 從 team_config.json board.default_swim_selections 讀取
+    // 空陣列 = 全選；有值 = 只預先勾選指定主題
+    const DEFAULT_SWIM_SELECTIONS = {DEFAULT_SWIM_SEL_JSON};
     const swimsHtml = Object.entries(RAW.swimlanesMap)
         .map(([id,name]) => {{
-            const checked = DEFAULT_SWIM_SELECTIONS.includes(name) ? 'checked' : '';
+            const checked = (DEFAULT_SWIM_SELECTIONS.length === 0 || DEFAULT_SWIM_SELECTIONS.includes(name)) ? 'checked' : '';
             return `<div class="picker-item"><input type="checkbox" value="${{id}}" ${{checked}} onchange="applyFilters1();applyFilters2()"> ${{name}}</div>`;
         }})
         .join('');
@@ -1622,13 +1631,12 @@ function applyParentSwimFilter(tabName) {{
 
 // ==================== Swimlane Ordering ====================
 
-const SWIM_ORDER = [
-    '大數據平台','ICD_DRG','深耕計畫','健保申報',
-    'Power BI 數據賦能推動','AI','視圖維護',
-    '指標平台－資訊化指標資料來源','分享/設備安裝/其他'
-];
+// SWIM_ORDER 從 team_config.json board.swimlanes_order 讀取
+// 空陣列 = 依 Wekan JSON 原始順序；有值 = 依指定順序排列
+const SWIM_ORDER = {SWIM_ORDER_JSON};
 
 function swimRank(name) {{
+    if (SWIM_ORDER.length === 0) return 9999;   // 空 = 不強制排序
     const i = SWIM_ORDER.indexOf(name);
     return i >= 0 ? i : 9999;
 }}
