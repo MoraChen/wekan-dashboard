@@ -44,6 +44,17 @@
     ],
     "_swimlanes_order_note": "Display order of swimlanes in charts and tables. Leave as [] to use the original order from Wekan JSON.",
     "default_swim_selections": [],
-    "_default_swim_selections_note": "Swimlane names pre-checked in the filter panel. Leave as [] to select all by default."
+    "_default_swim_selections_note": "Swimlane names pre-checked in the filter panel. Leave as [] to select all by default.",
+    "lists_roles": {
+      "_note": "Map each role to the list title(s) used in your Wekan board. Unlisted roles use built-in defaults.",
+      "done":    ["DONE"],
+      "closed":  ["Closed"],
+      "doing":   ["Doing"],
+      "waiting": ["Waiting"],
+      "review":  ["Review / User Test"],
+      "backlog": ["Backlog"],
+      "ready":   ["Ready to GO"],
+      "info":    ["Goal & Project Info"]
+    }
   }
 }

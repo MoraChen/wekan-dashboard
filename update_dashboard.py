@@ -57,11 +57,13 @@ labels_map    = {l["_id"]: l["name"] for l in data["labels"]}
 lists_map     = {l["_id"]: l["title"] for l in data["lists"]}
 swimlanes_map = {s["_id"]: s["title"] for s in data["swimlanes"]}
 
-# ── 讀取 team_config.json，建立 userId → fullname 對照 ───
+# ── 讀取 team_config.json ──────────────────────────────────────────
 TEAM_CONFIG_PATH = os.path.join(BASE_DIR, "team_config.json")
-fullname_map = {}   # userId → fullname（優先使用，fallback 到 username）
-swim_order_cfg = []         # 主題排序（空 = 依 JSON 原始順序）
+_cfg = {}
+fullname_map         = {}
+swim_order_cfg       = []   # 主題排序（空 = 依 JSON 原始順序）
 default_swim_sel_cfg = []   # 篩選器預設勾選（空 = 全選）
+
 if os.path.exists(TEAM_CONFIG_PATH):
     with open(TEAM_CONFIG_PATH, "r", encoding="utf-8") as _f:
         _cfg = json.load(_f)
@@ -71,21 +73,49 @@ if os.path.exists(TEAM_CONFIG_PATH):
     _board = _cfg.get("board", {})
     swim_order_cfg       = _board.get("swimlanes_order", [])
     default_swim_sel_cfg = _board.get("default_swim_selections", [])
+
 # 合併：以 fullname_map 覆蓋 users（無對應則保留 username）
 display_users = {uid: fullname_map.get(uid, uname) for uid, uname in users.items()}
 
-# 將 swimlane 設定轉為 JSON 字串（注入 HTML 模板用）
-import json as _json_mod
-SWIM_ORDER_JSON       = _json_mod.dumps(swim_order_cfg,       ensure_ascii=False)
-DEFAULT_SWIM_SEL_JSON = _json_mod.dumps(default_swim_sel_cfg, ensure_ascii=False)
+# ── List 角色對應（從 team_config.json 讀取，有預設值）─────────────
+# 每個角色對應一組 List 標題；其他部門只需在 team_config.json 填自己的欄位名稱
+_default_roles = {
+    "done":    ["DONE"],
+    "closed":  ["Closed"],
+    "doing":   ["Doing"],
+    "waiting": ["Waiting"],
+    "review":  ["Review / 使用者Test"],
+    "backlog": ["Backlog"],
+    "ready":   ["Ready to GO"],
+    "info":    ["Goal＆專案資訊"],
+}
+_roles_cfg = _cfg.get("board", {}).get("lists_roles", {})
+_roles = {k: _roles_cfg.get(k, v) for k, v in _default_roles.items()}
 
-DONE_IDS     = [lid for lid, t in lists_map.items() if "DONE" in t.upper()]
-DOING_IDS    = [lid for lid, t in lists_map.items() if t == "Doing"]
-WAIT_IDS     = [lid for lid, t in lists_map.items() if t == "Waiting"]
-REVIEW_IDS   = [lid for lid, t in lists_map.items() if "Test" in t]
-BACKLOG_IDS  = [lid for lid, t in lists_map.items() if t == "Backlog"]
-READY_IDS    = [lid for lid, t in lists_map.items() if t == "Ready to GO"]
+def _ids_for_names(names):
+    return [lid for lid, t in lists_map.items() if t in names]
+
+DONE_IDS     = _ids_for_names(_roles["done"])
+DOING_IDS    = _ids_for_names(_roles["doing"])
+WAIT_IDS     = _ids_for_names(_roles["waiting"])
+REVIEW_IDS   = _ids_for_names(_roles["review"])
+BACKLOG_IDS  = _ids_for_names(_roles["backlog"])
+READY_IDS    = _ids_for_names(_roles["ready"])
 PIPELINE_IDS = set(DOING_IDS + WAIT_IDS + REVIEW_IDS)
+
+# ── JS 注入用：各排除清單與顯示順序（使用 List 標題）──────────────
+# 排除清單由角色自動推導，無需手動維護
+_risk_exclude  = _roles["done"]    + _roles["closed"] + _roles["info"]
+_act_exclude   = _roles["done"]    + _roles["closed"] + _roles["backlog"] + _roles["info"]
+_focus_exclude = _roles["backlog"] + _roles["info"]
+
+SWIM_ORDER_JSON       = json.dumps(swim_order_cfg,       ensure_ascii=False)
+DEFAULT_SWIM_SEL_JSON = json.dumps(default_swim_sel_cfg, ensure_ascii=False)
+RISK_EXCLUDE_JSON     = json.dumps(_risk_exclude,        ensure_ascii=False)
+ACT_EXCLUDE_JSON      = json.dumps(_act_exclude,         ensure_ascii=False)
+FOCUS_EXCLUDE_JSON    = json.dumps(_focus_exclude,       ensure_ascii=False)
+LIST_ORDER_JSON       = json.dumps(
+    _cfg.get("board", {}).get("lists_order", []), ensure_ascii=False)
 
 # ── 父子任務關係 ─────────────────────────────────────────
 child_parent_ids = set(c.get("parentId","") for c in data["cards"] if c.get("parentId",""))
@@ -1949,8 +1979,8 @@ function updateCharts(cards, startDt, endDt) {{
         listCounts[c.list] = (listCounts[c.list] || 0) + 1;
     }});
 
-    // 依流程順序排列（未來新增「準備中」欄位會自動對應位置）
-    const LIST_ORDER = ['Goal＆專案資訊','Backlog','準備中','Ready to GO','Doing','Review / 使用者Test','Waiting','DONE','Closed'];
+    // 依流程順序排列（從 team_config.json board.lists_order 讀取；空陣列 = 依 Wekan JSON 原始順序）
+    const LIST_ORDER = {LIST_ORDER_JSON};
     const sortedLists = Object.keys(listCounts).sort((a, b) => {{
         const ia = LIST_ORDER.indexOf(a);
         const ib = LIST_ORDER.indexOf(b);
@@ -2147,8 +2177,8 @@ function toggleSwimGroup(gid) {{
 
 // ==================== Table 1 (Overview) ====================
 
-// 需求 #2: 風險分析排除 List 定義
-const RISK_EXCLUDE_LISTS = ['DONE', 'Closed', '過往卡片', '過往卡片待青', 'Goal＆專案資訊'];
+// 風險分析排除 List（從 team_config.json lists_roles 推導：done + closed + info）
+const RISK_EXCLUDE_LISTS = {RISK_EXCLUDE_JSON};
 function isRiskCard(c) {{
     if (RISK_EXCLUDE_LISTS.includes(c.list)) return false;
     if (c.archived) return false;
@@ -2245,8 +2275,8 @@ function renderNewDone1(cards, startDt, endDt) {{
     }});
     document.getElementById('t1-newdone-done-table').querySelector('tbody').innerHTML = doneHtml;
 
-    // 本週有異動（排除 DONE / Closed / Backlog / Goal＆專案資訊），依最後活動日由新到舊
-    const ACT_EXCLUDE = ['DONE','Closed','Backlog','Goal＆專案資訊'];
+    // 本週有異動（排除 done + closed + backlog + info），依最後活動日由新到舊
+    const ACT_EXCLUDE = {ACT_EXCLUDE_JSON};
     const actCards = cards.filter(c => {{
         if (!c.dateLastActivity) return false;
         if (ACT_EXCLUDE.includes(c.list)) return false;
@@ -2388,8 +2418,8 @@ function updatePersonalFocus(memberId, filteredCards, startDt, endDt) {{
     const memberSwims = {{}};
 
     // 只顯示在選取時間範圍內有異動（dateLastActivity 落在區間）的卡片
-    // 個人泳道專注分析：包含 DONE / Closed（完成工作需要呈現），排除 Backlog / Goal＆專案資訊
-    const FOCUS_EXCLUDE = ['Backlog','Goal＆專案資訊'];
+    // 個人泳道專注分析：包含 DONE / Closed（完成工作需要呈現），排除 backlog + info
+    const FOCUS_EXCLUDE = {FOCUS_EXCLUDE_JSON};
     const hasDateFilter = !isNaN(startDt) && !isNaN(endDt);
     filteredCards.forEach(c => {{
         const hasMem = c.members.some(m => RAW.users[memberId] === m);
@@ -2472,8 +2502,8 @@ function renderNewDone2(cards, startDt, endDt) {{
     }});
     document.getElementById('t2-newdone-done-table').querySelector('tbody').innerHTML = doneHtml;
 
-    // 本週有異動：dateLastActivity 落在本週區間，排除本週新增／完成 及 DONE/Closed/Backlog/Goal＆專案資訊，依最後活動日由新到舊
-    const ACT_EXCLUDE2 = ['DONE','Closed','Backlog','Goal＆專案資訊'];
+    // 本週有異動：dateLastActivity 落在本週區間，排除本週新增／完成 及 done + closed + backlog + info，依最後活動日由新到舊
+    const ACT_EXCLUDE2 = {ACT_EXCLUDE_JSON};
     const actCards = cards.filter(c => {{
         const at = c.dateLastActivity ? new Date(c.dateLastActivity) : null;
         if (!at || at < startDt || at > endDt) return false;
