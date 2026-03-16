@@ -121,7 +121,6 @@ UI 表格、圖表、KPI 卡片
 | `endAt` | ISO string | 完成時間 | `c["endAt"]` |
 | `dueAt` | ISO string | 到期日 | `c["dueAt"]` |
 | `dateLastActivity` | ISO string | 最後活動時間 | `c["dateLastActivity"]` |
-| `archivedAt` | ISO string | 封存時間 | `c["archivedAt"]` |
 | `archived` | bool | 是否封存 | `c["archived"]` |
 | `isDone` | bool | 是否在 DONE 欄位或已封存 | `listId ∈ DONE_IDS \|\| archived` |
 | `isDoing` | bool | 是否在 Doing 欄位 | `listId ∈ DOING_IDS` |
@@ -138,13 +137,14 @@ UI 表格、圖表、KPI 卡片
 | `clTotal` | int | Checklist 項目總數 | sum from checklists |
 | `clDone` | int | Checklist 完成數 | sum from checklistItems |
 | `clPct` | int \| null | Checklist 完成率（%） | `round(clDone*100/clTotal)` |
-| `hasParent` | bool | 是否有父任務 | `parentId != ""` |
 | `parentId` | string | 父任務卡片 ID | `c["parentId"]` |
-| `hasChildren` | bool | 是否有子任務 | `id ∈ child_parent_ids` |
-| `isParentTask` | bool | 是父任務（有子、無父） | `hasChildren && !hasParent` |
+| `isParentTask` | bool | 是父任務（有子、無父） | `id ∈ child_parent_ids && !parentId` |
 | `isChildTask` | bool | 是子任務 | `hasParent` |
 | `isStandalone` | bool | 獨立任務 | `!hasChildren && !hasParent` |
-| `cardNumber` | string | 卡片編號 | `c["cardNumber"]` |
+| ~~`cardNumber`~~ | — | 已移除（JS 未使用）| — |
+| ~~`archivedAt`~~ | — | 已移除（JS 未使用）| — |
+| ~~`hasParent`~~ | — | 已移除（`isChildTask` 已涵蓋）| — |
+| ~~`hasChildren`~~ | — | 已移除（`isParentTask` 已涵蓋）| — |
 
 ### 3-2. team_config.json Schema
 

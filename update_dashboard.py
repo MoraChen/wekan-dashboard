@@ -171,7 +171,7 @@ for c in data["cards"]:
         "endAt":            c.get("endAt", ""),
         "dueAt":            c.get("dueAt", ""),
         "dateLastActivity": c.get("dateLastActivity", ""),
-        "archivedAt":       c.get("archivedAt", ""),
+        # archivedAt 已移除（JS 未使用）
         "archived":         archived,
         "isDone":           is_done,
         "isDoing":          list_id in DOING_IDS,
@@ -188,13 +188,12 @@ for c in data["cards"]:
         "clTotal":          cl["total"],
         "clDone":           cl["done"],
         "clPct":            cl_pct,
-        "hasParent":        bool(c.get("parentId")),
+        # hasParent / hasChildren 已移除（isChildTask / isParentTask 已涵蓋，JS 未直接使用）
         "parentId":         c.get("parentId", ""),
-        "hasChildren":      cid in child_parent_ids,
         "isParentTask":     cid in child_parent_ids and not bool(c.get("parentId","")),
         "isChildTask":      bool(c.get("parentId","")),
         "isStandalone":     cid not in child_parent_ids and not bool(c.get("parentId","")),
-        "cardNumber":       c.get("cardNumber", ""),
+        # cardNumber 已移除（JS 未使用）
     })
 
 # ── 每週完成趨勢（近 12 週）────────────────────────────
@@ -713,73 +712,8 @@ html = f"""<!DOCTYPE html>
             font-size: 11px;
         }}
 
-        /* 需求 #2: 停滯定義 Tooltip */
-        .stale-tip {{
-            position: relative;
-            cursor: help;
-            color: #888;
-            font-size: 0.85em;
-            margin-left: 4px;
-        }}
-
-        .stale-tip::after {{
-            content: "停滯定義：卡片在 Pipeline（Doing / Waiting / Review / 使用者Test）中，且超過 14 天無任何活動（以最後活動日計算）";
-            position: absolute;
-            background: #333;
-            color: #fff;
-            padding: 8px 12px;
-            border-radius: 4px;
-            font-size: 0.75em;
-            white-space: normal;
-            width: 200px;
-            bottom: 130%;
-            left: 50%;
-            transform: translateX(-50%);
-            display: none;
-            z-index: 9999;
-            pointer-events: none;
-            text-align: center;
-            line-height: 1.3;
-        }}
-
-        .stale-tip:hover::after {{
-            display: block;
-        }}
-
-        /* 待辦積壓 Tooltip */
-        .backlog-tip {{
-            position: relative;
-            cursor: help;
-            color: #888;
-            font-size: 0.85em;
-            margin-left: 4px;
-        }}
-
-        .backlog-tip::after {{
-            content: "待辦積壓 = Backlog + Ready to GO 中尚未封存的卡片數，代表尚未進入執行流程的需求量";
-            position: absolute;
-            background: #333;
-            color: #fff;
-            padding: 8px 12px;
-            border-radius: 6px;
-            font-size: 12px;
-            white-space: normal;
-            width: 260px;
-            left: 50%;
-            transform: translateX(-50%);
-            bottom: calc(100% + 6px);
-            display: none;
-            z-index: 99;
-            pointer-events: none;
-            text-align: center;
-            line-height: 1.3;
-        }}
-
-        .backlog-tip:hover::after {{
-            display: block;
-        }}
-
-        /* 通用 info-tip（data-tip 屬性帶入文字） */
+        /* 通用 info-tip（data-tip 屬性帶入文字）
+           原 .stale-tip / .backlog-tip 已統一合併至此 class */
         .info-tip {{
             position: relative;
             cursor: help;
@@ -1034,7 +968,7 @@ html = f"""<!DOCTYPE html>
                             <th>專案</th>
                             <th>卡片名稱</th>
                             <th>預計完成日</th>
-                            <th>停滯天數 <span class="stale-tip">ℹ️</span></th>
+                            <th>停滯天數 <span class="info-tip" data-tip="停滯定義：卡片在 Pipeline（Doing / Waiting / Review）中，超過 14 天無任何活動（以最後活動日計算）">ℹ️</span></th>
                             <th>所在欄位</th>
                             <th>負責人</th>
                             <th>最後活動日</th>
@@ -1061,7 +995,7 @@ html = f"""<!DOCTYPE html>
                             <th>專案</th>
                             <th>卡片名稱</th>
                             <th>預計完成日</th>
-                            <th>停滯天數 <span class="stale-tip">ℹ️</span></th>
+                            <th>停滯天數 <span class="info-tip" data-tip="停滯定義：卡片在 Pipeline（Doing / Waiting / Review）中，超過 14 天無任何活動（以最後活動日計算）">ℹ️</span></th>
                             <th>所在欄位</th>
                             <th>負責人</th>
                             <th>最後活動日</th>
@@ -1102,7 +1036,7 @@ html = f"""<!DOCTYPE html>
                     <tr>
                         <th>專案</th>
                         <th>卡片名稱</th>
-                        <th>停滯天數 <span class="stale-tip">ℹ️</span></th>
+                        <th>停滯天數 <span class="info-tip" data-tip="停滯定義：卡片在 Pipeline（Doing / Waiting / Review）中，超過 14 天無任何活動（以最後活動日計算）">ℹ️</span></th>
                         <th>所在欄位</th>
                         <th>負責人</th>
                         <th>最後活動日</th>
@@ -1176,7 +1110,7 @@ html = f"""<!DOCTYPE html>
                         <th>負責人</th>
                         <th>建立日</th>
                         <th>最後活動日</th>
-                        <th>停滯 <span class="stale-tip">ℹ️</span></th>
+                        <th>停滯 <span class="info-tip" data-tip="停滯定義：卡片在 Pipeline（Doing / Waiting / Review）中，超過 14 天無任何活動（以最後活動日計算）">ℹ️</span></th>
                         <th>Checklist進度</th>
                         <th>標籤</th>
                     </tr>
@@ -2052,7 +1986,7 @@ function updateKPI(cards, startDt, endDt) {{
             <div class="kpi-value">${{reviewCount}}</div>
         </div>
         <div class="kpi-card alert">
-            <div class="kpi-label">停滯卡片 <span class="stale-tip">ℹ️</span></div>
+            <div class="kpi-label">停滯卡片 <span class="info-tip" data-tip="停滯定義：卡片在 Pipeline（Doing / Waiting / Review）中，超過 14 天無任何活動（以最後活動日計算）">ℹ️</span></div>
             <div class="kpi-value">${{staleCount}}</div>
         </div>
         <div class="kpi-card alert">
@@ -2060,7 +1994,7 @@ function updateKPI(cards, startDt, endDt) {{
             <div class="kpi-value">${{noMemberCount}}</div>
         </div>
         <div class="kpi-card warn">
-            <div class="kpi-label">待辦積壓 <span class="backlog-tip">ℹ️</span></div>
+            <div class="kpi-label">待辦積壓 <span class="info-tip" data-tip="待辦積壓 = Backlog + Ready to GO 中尚未封存的卡片數，代表尚未進入執行流程的需求量">ℹ️</span></div>
             <div class="kpi-value">${{backlogCount}}</div>
         </div>
         <div class="kpi-card" style="border-top:3px solid #f57f17; cursor:pointer;" onclick="jumpToDueSoon()" title="點擊查看明細">
