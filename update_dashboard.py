@@ -45,6 +45,10 @@ NOW = datetime.now(timezone.utc).replace(hour=23, minute=59, second=59)
 NOW_STR = NOW.strftime("%Y-%m-%d")
 WEEK_START = (NOW - timedelta(days=7)).replace(hour=0, minute=0, second=0)
 STALE_DAYS = 14
+DUE_SOON_DAYS = 7
+DUE_SOON_END  = (NOW + timedelta(days=DUE_SOON_DAYS)).replace(hour=23, minute=59, second=59)
+TODAY_DISPLAY       = f"{NOW.month}/{NOW.day}"
+DUE_SOON_END_DISPLAY = f"{DUE_SOON_END.month}/{DUE_SOON_END.day}"
 
 def parse_dt(s):
     if not s: return None
@@ -109,6 +113,8 @@ _risk_exclude  = _roles["done"]    + _roles["closed"] + _roles["info"]
 _act_exclude   = _roles["done"]    + _roles["closed"] + _roles["backlog"] + _roles["info"]
 _focus_exclude = _roles["backlog"] + _roles["info"]
 
+TODAY_DISPLAY_JSON    = json.dumps(TODAY_DISPLAY,        ensure_ascii=False)
+DUE_SOON_END_JSON     = json.dumps(DUE_SOON_END_DISPLAY, ensure_ascii=False)
 SWIM_ORDER_JSON       = json.dumps(swim_order_cfg,       ensure_ascii=False)
 DEFAULT_SWIM_SEL_JSON = json.dumps(default_swim_sel_cfg, ensure_ascii=False)
 RISK_EXCLUDE_JSON     = json.dumps(_risk_exclude,        ensure_ascii=False)
@@ -145,8 +151,9 @@ for c in data["cards"]:
     stale_days = (NOW - last_act).days if last_act else None
     is_done    = list_id in DONE_IDS or archived
     in_pipeline= list_id in PIPELINE_IDS
-    is_overdue = bool(due_dt and due_dt < NOW and not is_done)
-    is_stale   = bool(in_pipeline and stale_days is not None and stale_days > STALE_DAYS)
+    is_overdue  = bool(due_dt and due_dt < NOW and not is_done)
+    is_stale    = bool(in_pipeline and stale_days is not None and stale_days > STALE_DAYS)
+    is_due_soon = bool(due_dt and NOW <= due_dt <= DUE_SOON_END and not is_done)
 
     cl = card_cl.get(cid, {"total": 0, "done": 0, "count": 0})
     cl_pct = round(cl["done"] * 100 / cl["total"]) if cl["total"] > 0 else None
@@ -173,7 +180,9 @@ for c in data["cards"]:
         "inPipeline":       in_pipeline,
         "isOverdue":        is_overdue,
         "isStale":          is_stale,
+        "isDueSoon":        is_due_soon,
         "staleDays":        stale_days,
+        "dueAtDisplay":     f"{due_dt.month}/{due_dt.day}" if due_dt else "",
         "noMember":         len(c.get("members") or []) == 0,
         "hasChecklist":     cl["total"] > 0,
         "clTotal":          cl["total"],
@@ -228,9 +237,11 @@ data_json = json.dumps(dashboard_data, ensure_ascii=False)
 print(f"✅ 資料解析完成，共 {len(card_records)} 張卡片")
 
 # ── 提取標題用變數（需求 #6）────────────────────────
-board_title = data.get("title", "Wekan 看板")
-now_str     = NOW.strftime("%Y-%m-%d")
-json_fname  = os.path.basename(JSON_PATH)
+board_title      = data.get("title", "Wekan 看板")
+now_str          = NOW.strftime("%Y-%m-%d")
+json_fname       = os.path.basename(JSON_PATH)
+today_display    = TODAY_DISPLAY
+due_soon_end_display = DUE_SOON_END_DISPLAY
 
 # ── 產生 HTML ────────────────────────────────────────────
 DEFAULT_START = (NOW - timedelta(days=7)).strftime("%Y-%m-%d")
@@ -590,6 +601,12 @@ html = f"""<!DOCTYPE html>
             background: #ffebee;
             color: var(--error);
         }}
+        .badge-due-soon {{
+            background: #fff8e1;
+            color: #e65100;
+            border: 1px solid #ffcc02;
+            font-weight: 600;
+        }}
 
         .card-link-icon {{
             opacity: 0;
@@ -877,7 +894,7 @@ html = f"""<!DOCTYPE html>
 
 <div class="header">
     <h1>📊 {board_title} — 週報儀表板</h1>
-    <p>分析基準日：{now_str} ｜ 資料來源：{json_fname}</p>
+    <p>分析基準日：{now_str} ｜ 資料來源：{json_fname} ｜ ⚡ 即將到期判斷區間：{today_display} – {due_soon_end_display}</p>
 </div>
 
 <div class="main-tab-bar">
@@ -965,6 +982,7 @@ html = f"""<!DOCTYPE html>
         <div class="sub-tab-bar" style="margin-top:0; margin-bottom:15px; border-bottom:1px solid var(--border);">
             <button class="sub-tab-btn active" onclick="switchRiskSubTab('overview')">總覽風險</button>
             <button class="sub-tab-btn" onclick="switchRiskSubTab('swim')">泳道篩選</button>
+            <button class="sub-tab-btn" onclick="switchRiskSubTab('duesoon')">⚡ 即將到期</button>
         </div>
         <div class="risk-scope-note">＊資料範圍：排除 DONE / Closed / 過往卡片 / 過往卡片待青 / Goal＆專案資訊 / 封存卡片</div>
 
@@ -975,6 +993,7 @@ html = f"""<!DOCTYPE html>
                         <tr>
                             <th>專案</th>
                             <th>卡片名稱</th>
+                            <th>預計完成日</th>
                             <th>停滯天數 <span class="stale-tip">ℹ️</span></th>
                             <th>所在欄位</th>
                             <th>負責人</th>
@@ -1001,11 +1020,32 @@ html = f"""<!DOCTYPE html>
                         <tr>
                             <th>專案</th>
                             <th>卡片名稱</th>
+                            <th>預計完成日</th>
                             <th>停滯天數 <span class="stale-tip">ℹ️</span></th>
                             <th>所在欄位</th>
                             <th>負責人</th>
                             <th>最後活動日</th>
                             <th>Checklist進度</th>
+                            <th>風險標記</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="risk-subpanel-duesoon" class="sub-panel">
+            <div style="font-size:0.82em;color:#888;margin-bottom:10px;">⚡ 即將到期：dueAt 在 {today_display} – {due_soon_end_display} 之間（排除 DONE / Closed；以本儀表板產出日為基準）</div>
+            <div class="table-wrapper">
+                <table id="t1-risk-duesoon-table">
+                    <thead>
+                        <tr>
+                            <th>專案</th>
+                            <th>卡片名稱</th>
+                            <th>預計完成日</th>
+                            <th>所在欄位</th>
+                            <th>負責人</th>
+                            <th>最後活動日</th>
                             <th>風險標記</th>
                         </tr>
                     </thead>
@@ -1612,8 +1652,24 @@ function switchRiskSubTab(name) {{
         document.getElementById('risk-subpanel-overview').classList.add('active');
     }} else if (name === 'swim') {{
         document.getElementById('risk-subpanel-swim').classList.add('active');
+    }} else if (name === 'duesoon') {{
+        document.getElementById('risk-subpanel-duesoon').classList.add('active');
     }}
-    event.target.classList.add('active');
+    if (event && event.target) event.target.classList.add('active');
+}}
+
+function jumpToDueSoon() {{
+    // 切到 Tab1 → 風險與停滯 → 即將到期 sub-tab
+    switchMainTab('overview');
+    switchTab1('risk');
+    // 略過 event，直接操作
+    const btns = document.querySelectorAll('#t1-panel-risk .sub-tab-btn');
+    btns.forEach(b => b.classList.remove('active'));
+    const dueSoonBtn = [...btns].find(b => b.textContent.includes('即將到期'));
+    if (dueSoonBtn) dueSoonBtn.classList.add('active');
+    document.querySelectorAll('#t1-panel-risk .sub-panel').forEach(p => p.classList.remove('active'));
+    const panel = document.getElementById('risk-subpanel-duesoon');
+    if (panel) panel.classList.add('active');
 }}
 
 // 需求 #1 & #3: 風險泳道篩選
@@ -1932,6 +1988,8 @@ function updateKPI(cards, startDt, endDt) {{
         (RAW.listCategories.BACKLOG.includes(c.listId) || RAW.listCategories.READY.includes(c.listId)) && !c.archived
     ).length;
 
+    const dueSoonCount = RAW.cards.filter(c => c.isDueSoon && !c.archived).length;
+
     const kpiHtml = `
         <div class="kpi-card">
             <div class="kpi-label">本週新增 <span class="info-tip" data-tip="過去 7 天內新建立的卡片（以 createdAt 計算）">ℹ️</span></div>
@@ -1964,6 +2022,10 @@ function updateKPI(cards, startDt, endDt) {{
         <div class="kpi-card warn">
             <div class="kpi-label">待辦積壓 <span class="backlog-tip">ℹ️</span></div>
             <div class="kpi-value">${{backlogCount}}</div>
+        </div>
+        <div class="kpi-card" style="border-top:3px solid #f57f17; cursor:pointer;" onclick="jumpToDueSoon()" title="點擊查看明細">
+            <div class="kpi-label">⚡ 即將到期 <span class="info-tip" data-tip="dueAt 在 {TODAY_DISPLAY} – {DUE_SOON_END_DISPLAY} 之間的卡片（排除 DONE / Closed；以本儀表板產出日為基準）">ℹ️</span></div>
+            <div class="kpi-value">${{dueSoonCount}}</div>
         </div>
     `;
 
@@ -2186,33 +2248,42 @@ function isRiskCard(c) {{
 }}
 
 function updateRiskTables(cards) {{
-    const riskCards = cards.filter(c => isRiskCard(c) && (c.isStale || c.isOverdue || c.noMember));
+    const riskCards = cards.filter(c => isRiskCard(c) && (c.isStale || c.isOverdue || c.noMember || c.isDueSoon));
 
-    // 總覽風險：逾期 → 停滯（天數遞減）→ 無負責人
-    const riskTypeRank = c => c.isOverdue ? 0 : c.isStale ? 1 : 2;
+    // 總覽風險：逾期(0) → 即將到期(1) → 停滯(2,天數遞減) → 無負責人(3)
+    const riskTypeRank = c => c.isOverdue ? 0 : c.isDueSoon ? 1 : c.isStale ? 2 : 3;
     const sortedRisk = riskCards.sort((a, b) => {{
         const rankDiff = riskTypeRank(a) - riskTypeRank(b);
         if (rankDiff !== 0) return rankDiff;
+        // 同為即將到期：dueAt 由近到遠
+        if (a.isDueSoon && b.isDueSoon) return new Date(a.dueAt) - new Date(b.dueAt);
         // 同為停滯：天數由多到少
         if (a.isStale && b.isStale) return (b.staleDays || 0) - (a.staleDays || 0);
         return 0;
     }});
 
+    function buildRiskBadges(c) {{
+        const badges = [];
+        if (c.isOverdue)  badges.push('<span class="badge" style="background:#ffebee;color:#c62828;">逾期</span>');
+        if (c.isDueSoon)  badges.push(`<span class="badge badge-due-soon">⚡ ${{c.dueAtDisplay}}</span>`);
+        if (c.isStale)    badges.push('<span class="badge badge-stale">停滯</span>');
+        if (c.noMember)   badges.push('<span class="badge" style="background:#fff3e0;color:#e65100;">無負責</span>');
+        return badges.join(' ') || '-';
+    }}
+
     let riskOverviewHtml = '';
     sortedRisk.forEach(c => {{
-        const riskBadge = c.isStale ? '<span class="badge badge-stale">停滯</span>' :
-                         c.isOverdue ? '<span class="badge" style="background:#ffebee;color:#c62828;">逾期</span>' :
-                         '<span class="badge" style="background:#fff3e0;color:#e65100;">無負責</span>';
         const clProgress = c.hasChecklist ? `${{c.clDone}}/${{c.clTotal}} (${{c.clPct}}%)` : '-';
         riskOverviewHtml += `<tr>
             <td>${{c.swimlane}}</td>
             <td>${{cardLink(c.id, c.title)}}</td>
+            <td>${{c.dueAtDisplay || '-'}}</td>
             <td>${{c.staleDays || '-'}}</td>
             <td><span class="badge">${{c.list}}</span></td>
             <td>${{c.members.join(', ') || '無'}}</td>
             <td>${{c.dateLastActivity.split('T')[0] || '-'}}</td>
             <td>${{clProgress}}</td>
-            <td>${{riskBadge}}</td>
+            <td>${{buildRiskBadges(c)}}</td>
         </tr>`;
     }});
     document.getElementById('t1-risk-overview-table').querySelector('tbody').innerHTML = riskOverviewHtml;
@@ -2221,22 +2292,39 @@ function updateRiskTables(cards) {{
     const swimmingRisk = riskSwimFilter ? sortedRisk.filter(c => c.swimlaneId === riskSwimFilter) : sortedRisk;
     let riskSwimHtml = '';
     swimmingRisk.forEach(c => {{
-        const riskBadge = c.isStale ? '<span class="badge badge-stale">停滯</span>' :
-                         c.isOverdue ? '<span class="badge" style="background:#ffebee;color:#c62828;">逾期</span>' :
-                         '<span class="badge" style="background:#fff3e0;color:#e65100;">無負責</span>';
         const clProgress = c.hasChecklist ? `${{c.clDone}}/${{c.clTotal}} (${{c.clPct}}%)` : '-';
         riskSwimHtml += `<tr>
             <td>${{c.swimlane}}</td>
             <td>${{cardLink(c.id, c.title)}}</td>
+            <td>${{c.dueAtDisplay || '-'}}</td>
             <td>${{c.staleDays || '-'}}</td>
             <td><span class="badge">${{c.list}}</span></td>
             <td>${{c.members.join(', ') || '無'}}</td>
             <td>${{c.dateLastActivity.split('T')[0] || '-'}}</td>
             <td>${{clProgress}}</td>
-            <td>${{riskBadge}}</td>
+            <td>${{buildRiskBadges(c)}}</td>
         </tr>`;
     }});
     document.getElementById('t1-risk-swim-table').querySelector('tbody').innerHTML = riskSwimHtml;
+
+    // 即將到期分頁：僅顯示 isDueSoon 卡片，依 dueAt 由近到遠
+    const dueSoonCards = cards.filter(c => isRiskCard(c) && c.isDueSoon)
+        .sort((a, b) => new Date(a.dueAt) - new Date(b.dueAt));
+    let dueSoonHtml = '';
+    dueSoonCards.forEach(c => {{
+        dueSoonHtml += `<tr>
+            <td>${{c.swimlane}}</td>
+            <td>${{cardLink(c.id, c.title)}}</td>
+            <td><strong>${{c.dueAtDisplay || '-'}}</strong></td>
+            <td><span class="badge">${{c.list}}</span></td>
+            <td>${{c.members.join(', ') || '無'}}</td>
+            <td>${{c.dateLastActivity.split('T')[0] || '-'}}</td>
+            <td>${{buildRiskBadges(c)}}</td>
+        </tr>`;
+    }});
+    if (!dueSoonHtml) dueSoonHtml = '<tr><td colspan="7" style="text-align:center;color:#999">目前無即將到期的卡片</td></tr>';
+    const dueSoonTbl = document.getElementById('t1-risk-duesoon-table');
+    if (dueSoonTbl) dueSoonTbl.querySelector('tbody').innerHTML = dueSoonHtml;
 }}
 
 // ==================== 改動 2: updateTables1 拆解函式 ====================
@@ -2301,6 +2389,7 @@ function renderDoing1(cards) {{
     doingCards.forEach(c => {{
         const staleBadge = c.isStale ? `<span class="badge badge-stale">停滯${{c.staleDays}}天</span>` :
                           '<span class="badge" style="background:#e8f5e9;color:#2e7d32;">活躍</span>';
+        const dueSoonBadge = c.isDueSoon ? `<span class="badge badge-due-soon">⚡ ${{c.dueAtDisplay}}</span>` : '';
         doingHtml += `<tr>
             <td>${{c.swimlane}}</td>
             <td>${{cardLink(c.id, c.title)}}</td>
@@ -2308,7 +2397,7 @@ function renderDoing1(cards) {{
             <td><span class="badge badge-doing">${{c.list}}</span></td>
             <td>${{c.members.join(', ') || '無'}}</td>
             <td>${{c.dateLastActivity.split('T')[0] || '-'}}</td>
-            <td>${{staleBadge}}</td>
+            <td>${{dueSoonBadge}}${{staleBadge}}</td>
         </tr>`;
     }});
     document.getElementById('t1-doing-table').querySelector('tbody').innerHTML = doingHtml;
