@@ -608,6 +608,44 @@ html = f"""<!DOCTYPE html>
             font-weight: 600;
         }}
 
+        /* 風險摘要卡 */
+        .risk-summary {{
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            font-size: 0.88em;
+            line-height: 1.7;
+        }}
+        .risk-summary.warn {{
+            background: #fff8e1;
+            border-left: 4px solid #f9a825;
+            color: #4e342e;
+        }}
+        .risk-summary.ok {{
+            background: #e8f5e9;
+            border-left: 4px solid #43a047;
+            color: #2e7d32;
+        }}
+        .risk-summary-title {{
+            font-weight: 700;
+            font-size: 0.95em;
+            margin-bottom: 2px;
+            letter-spacing: 0.02em;
+        }}
+        .risk-summary-row {{
+            display: flex;
+            align-items: baseline;
+            gap: 6px;
+        }}
+        .risk-summary-label {{
+            color: #8d6e63;
+            min-width: 3em;
+            font-size: 0.9em;
+        }}
+
         .card-link-icon {{
             opacity: 0;
             display: inline-block;
@@ -979,6 +1017,8 @@ html = f"""<!DOCTYPE html>
 
     <!-- 需求 #1: 風險與停滯拆為兩子分頁 -->
     <div id="t1-panel-risk" class="sub-panel">
+        <!-- 風險摘要卡（A-1）：自動產生，跟篩選器同步 -->
+        <div id="risk-summary-box"></div>
         <div class="sub-tab-bar" style="margin-top:0; margin-bottom:15px; border-bottom:1px solid var(--border);">
             <button class="sub-tab-btn active" onclick="switchRiskSubTab('overview')">總覽風險</button>
             <button class="sub-tab-btn" onclick="switchRiskSubTab('swim')">泳道篩選</button>
@@ -1035,7 +1075,7 @@ html = f"""<!DOCTYPE html>
         </div>
 
         <div id="risk-subpanel-duesoon" class="sub-panel">
-            <div style="font-size:0.82em;color:#888;margin-bottom:10px;">⚡ 即將到期：dueAt 在 {today_display} – {due_soon_end_display} 之間（排除 DONE / Closed；以本儀表板產出日為基準）</div>
+            <div style="font-size:0.82em;color:#888;margin-bottom:10px;">⚡ 即將到期：dueAt 在 {today_display} – {due_soon_end_display} 之間（排除 DONE / Closed；以本儀表板產出日為基準）｜<strong style="color:#e65100;">全看板顯示，不受左側篩選器影響</strong></div>
             <div class="table-wrapper">
                 <table id="t1-risk-duesoon-table">
                     <thead>
@@ -2024,7 +2064,7 @@ function updateKPI(cards, startDt, endDt) {{
             <div class="kpi-value">${{backlogCount}}</div>
         </div>
         <div class="kpi-card" style="border-top:3px solid #f57f17; cursor:pointer;" onclick="jumpToDueSoon()" title="點擊查看明細">
-            <div class="kpi-label">⚡ 即將到期 <span class="info-tip" data-tip="dueAt 在 {TODAY_DISPLAY} – {DUE_SOON_END_DISPLAY} 之間的卡片（排除 DONE / Closed；以本儀表板產出日為基準）">ℹ️</span></div>
+            <div class="kpi-label">⚡ 即將到期 <span class="info-tip" data-tip="dueAt 在 {TODAY_DISPLAY} – {DUE_SOON_END_DISPLAY} 之間的卡片（排除 DONE / Closed；全看板計算，不受篩選器影響；以本儀表板產出日為基準）">ℹ️</span></div>
             <div class="kpi-value">${{dueSoonCount}}</div>
         </div>
     `;
@@ -2247,8 +2287,52 @@ function isRiskCard(c) {{
     return true;
 }}
 
+// ── 風險摘要卡（Feature A-1）─────────────────────────────
+function buildRiskSummary(riskCards) {{
+    const total = riskCards.length;
+    if (total === 0) {{
+        return '<div class="risk-summary ok"><span class="risk-summary-title">✅ 目前篩選範圍內無風險卡片</span></div>';
+    }}
+
+    const n0 = riskCards.filter(c => c.isOverdue).length;
+    const n1 = riskCards.filter(c => c.isDueSoon).length;
+    const n2 = riskCards.filter(c => c.isStale).length;
+    const n3 = riskCards.filter(c => c.noMember).length;
+
+    // 主題集中度（top 2）
+    const swimCount = {{}};
+    riskCards.forEach(c => {{ swimCount[c.swimlane] = (swimCount[c.swimlane] || 0) + 1; }});
+    const topSwims = Object.entries(swimCount).sort((a, b) => b[1] - a[1]).slice(0, 2);
+
+    // 成員集中度（top 2，排除「無負責人」卡片）
+    const memberCount = {{}};
+    riskCards.forEach(c => {{
+        c.members.forEach(m => {{ memberCount[m] = (memberCount[m] || 0) + 1; }});
+    }});
+    const topMembers = Object.entries(memberCount).sort((a, b) => b[1] - a[1]).slice(0, 2);
+
+    const swimStr = topSwims.map(([s, n]) => `<strong>${{s}}</strong>（${{n}} 張）`).join('、');
+    const memberStr = topMembers.length
+        ? topMembers.map(([m, n]) => `<strong>${{m}}</strong>（${{n}} 張）`).join('、') + ' 有最多待處理風險'
+        : '所有風險卡片皆有負責人';
+
+    return `<div class="risk-summary warn">
+        <span class="risk-summary-title">⚠️ 風險摘要 <span style="font-weight:400;font-size:0.88em;color:#8d6e63;">（依目前篩選條件）</span></span>
+        <div class="risk-summary-row">
+            <span class="risk-summary-label">總計</span>
+            <span>共 <strong>${{total}}</strong> 個風險卡片（逾期 ${{n0}} ｜ 即將到期 ${{n1}} ｜ 停滯 ${{n2}} ｜ 無負責人 ${{n3}}）</span>
+        </div>
+        ${{topSwims.length ? `<div class="risk-summary-row"><span class="risk-summary-label">集中在</span><span>${{swimStr}}</span></div>` : ''}}
+        <div class="risk-summary-row"><span class="risk-summary-label">成員</span><span>${{memberStr}}</span></div>
+    </div>`;
+}}
+
 function updateRiskTables(cards) {{
     const riskCards = cards.filter(c => isRiskCard(c) && (c.isStale || c.isOverdue || c.noMember || c.isDueSoon));
+
+    // 更新風險摘要卡
+    const summaryEl = document.getElementById('risk-summary-box');
+    if (summaryEl) summaryEl.innerHTML = buildRiskSummary(riskCards);
 
     // 總覽風險：逾期(0) → 即將到期(1) → 停滯(2,天數遞減) → 無負責人(3)
     const riskTypeRank = c => c.isOverdue ? 0 : c.isDueSoon ? 1 : c.isStale ? 2 : 3;
@@ -2307,8 +2391,8 @@ function updateRiskTables(cards) {{
     }});
     document.getElementById('t1-risk-swim-table').querySelector('tbody').innerHTML = riskSwimHtml;
 
-    // 即將到期分頁：僅顯示 isDueSoon 卡片，依 dueAt 由近到遠
-    const dueSoonCards = cards.filter(c => isRiskCard(c) && c.isDueSoon)
+    // 即將到期分頁：使用全看板 RAW.cards（不受篩選器影響），與 KPI 9 對齊
+    const dueSoonCards = RAW.cards.filter(c => isRiskCard(c) && c.isDueSoon && !c.archived)
         .sort((a, b) => new Date(a.dueAt) - new Date(b.dueAt));
     let dueSoonHtml = '';
     dueSoonCards.forEach(c => {{
