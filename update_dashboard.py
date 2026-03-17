@@ -154,6 +154,12 @@ for c in data["cards"]:
     is_overdue  = bool(due_dt and due_dt < NOW and not is_done)
     is_stale    = bool(in_pipeline and stale_days is not None and stale_days > STALE_DAYS)
     is_due_soon = bool(due_dt and NOW <= due_dt <= DUE_SOON_END and not is_done)
+    # 本週新出現的風險：本週才逾期 OR 本週才停滯（staleDays 14~20）OR 即將到期
+    is_new_risk = bool(
+        (is_overdue and due_dt and (NOW - due_dt).days <= 7) or
+        (is_stale and stale_days is not None and STALE_DAYS < stale_days <= STALE_DAYS + 7) or
+        is_due_soon
+    ) and not is_done
 
     cl = card_cl.get(cid, {"total": 0, "done": 0, "count": 0})
     cl_pct = round(cl["done"] * 100 / cl["total"]) if cl["total"] > 0 else None
@@ -181,6 +187,7 @@ for c in data["cards"]:
         "isOverdue":        is_overdue,
         "isStale":          is_stale,
         "isDueSoon":        is_due_soon,
+        "isNewRisk":        is_new_risk,
         "staleDays":        stale_days,
         "dueAtDisplay":     f"{due_dt.month}/{due_dt.day}" if due_dt else "",
         "noMember":         len(c.get("members") or []) == 0,
@@ -440,6 +447,9 @@ html = f"""<!DOCTYPE html>
 
         .kpi-card.warn {{ border-left: 4px solid var(--warn); }}
         .kpi-card.warn .kpi-value {{ color: var(--warn); }}
+
+        .kpi-card.kpi-clickable {{ cursor: pointer; transition: box-shadow 0.15s, transform 0.1s; }}
+        .kpi-card.kpi-clickable:hover {{ box-shadow: 0 4px 12px rgba(0,0,0,0.13); transform: translateY(-2px); }}
 
         .charts-container {{
             display: grid;
@@ -956,6 +966,7 @@ html = f"""<!DOCTYPE html>
         <div class="sub-tab-bar" style="margin-top:0; margin-bottom:15px; border-bottom:1px solid var(--border);">
             <button class="sub-tab-btn active" onclick="switchRiskSubTab('overview')">總覽風險</button>
             <button class="sub-tab-btn" onclick="switchRiskSubTab('swim')">泳道篩選</button>
+            <button class="sub-tab-btn" id="risk-subtab-btn-newrisk" onclick="switchRiskSubTab('newrisk')">🆕 本週新風險</button>
             <button class="sub-tab-btn" onclick="switchRiskSubTab('duesoon')">⚡ 即將到期</button>
         </div>
         <div class="risk-scope-note">＊資料範圍：排除 DONE / Closed / 過往卡片 / 過往卡片待青 / Goal＆專案資訊 / 封存卡片</div>
@@ -1003,6 +1014,19 @@ html = f"""<!DOCTYPE html>
                             <th>風險標記</th>
                         </tr>
                     </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="risk-subpanel-newrisk" class="sub-panel">
+            <div style="font-size:0.82em;color:#888;margin-bottom:10px;">🆕 本週新風險：本週才出現的風險卡（本週新逾期 ＋ 本週才停滯 ＋ 即將到期）｜受左側篩選器影響</div>
+            <div class="table-wrapper">
+                <table id="t1-risk-newrisk-table">
+                    <thead><tr>
+                        <th>專案</th><th>卡片名稱</th><th>預計完成日</th>
+                        <th>所在欄位</th><th>負責人</th><th>最後活動日</th><th>風險標記</th>
+                    </tr></thead>
                     <tbody></tbody>
                 </table>
             </div>
@@ -1622,28 +1646,86 @@ function switchRiskSubTab(name) {{
     panels.forEach(p => p.classList.remove('active'));
     btns.forEach(b => b.classList.remove('active'));
 
-    if (name === 'overview') {{
-        document.getElementById('risk-subpanel-overview').classList.add('active');
-    }} else if (name === 'swim') {{
-        document.getElementById('risk-subpanel-swim').classList.add('active');
-    }} else if (name === 'duesoon') {{
-        document.getElementById('risk-subpanel-duesoon').classList.add('active');
-    }}
+    const panelMap = {{ overview: 'risk-subpanel-overview', swim: 'risk-subpanel-swim', newrisk: 'risk-subpanel-newrisk', duesoon: 'risk-subpanel-duesoon' }};
+    if (panelMap[name]) document.getElementById(panelMap[name]).classList.add('active');
     if (event && event.target) event.target.classList.add('active');
 }}
 
-function jumpToDueSoon() {{
-    // 切到 Tab1 → 風險與停滯 → 即將到期 sub-tab
+// KPI 卡片統一跳轉函式
+function jumpToKPI(type) {{
     switchMainTab('overview');
-    switchTab1('risk');
-    // 略過 event，直接操作
-    const btns = document.querySelectorAll('#t1-panel-risk .sub-tab-btn');
-    btns.forEach(b => b.classList.remove('active'));
-    const dueSoonBtn = [...btns].find(b => b.textContent.includes('即將到期'));
-    if (dueSoonBtn) dueSoonBtn.classList.add('active');
+    if (type === 'done') {{
+        // → 本週動態 > 本週完成 mini-tab
+        _switchTab1Direct('newdone');
+        _activateNewDoneMiniTab('t1', 'done');
+    }} else if (type === 'new') {{
+        // → 本週動態 > 本週新增 mini-tab
+        _switchTab1Direct('newdone');
+        _activateNewDoneMiniTab('t1', 'new');
+    }} else if (type === 'newrisk') {{
+        // → 風險與停滯 > 本週新風險 sub-panel
+        _switchTab1Direct('risk');
+        _switchRiskSubTabDirect('newrisk');
+    }} else if (type === 'duesoon') {{
+        // → 風險與停滯 > 即將到期 sub-panel
+        _switchTab1Direct('risk');
+        _switchRiskSubTabDirect('duesoon');
+    }} else if (type === 'doing') {{
+        // → Doing 明細
+        _switchTab1Direct('doing');
+    }}
+    // 捲動到子分頁區域
+    setTimeout(() => {{
+        const el = document.getElementById('t1-sub-tab-bar') || document.querySelector('#main-panel-overview .sub-tab-bar');
+        if (el) el.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
+    }}, 50);
+}}
+
+// 不依賴 event 的 Tab1 切換（供 jumpToKPI 呼叫）
+function _switchTab1Direct(name) {{
+    const panels = ['newdone', 'doing', 'risk', 'parent', 'all'];
+    document.querySelectorAll('#main-panel-overview .sub-panel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('#main-panel-overview .sub-tab-btn').forEach(b => b.classList.remove('active'));
+    if (panels.includes(name)) {{
+        t1SubTab = name;
+        document.getElementById(`t1-panel-${{name}}`).classList.add('active');
+        // 點亮對應按鈕（依 onclick 內容比對）
+        const btn = [...document.querySelectorAll('#main-panel-overview > .sub-tab-bar .sub-tab-btn')]
+            .find(b => b.getAttribute('onclick') && b.getAttribute('onclick').includes(`'${{name}}'`));
+        if (btn) btn.classList.add('active');
+        if (name === 'all' || name === 'parent') renderT1Panel(name);
+    }}
+}}
+
+// 不依賴 event 的風險子分頁切換
+function _switchRiskSubTabDirect(name) {{
+    riskSubTab = name;
     document.querySelectorAll('#t1-panel-risk .sub-panel').forEach(p => p.classList.remove('active'));
-    const panel = document.getElementById('risk-subpanel-duesoon');
+    document.querySelectorAll('#t1-panel-risk .sub-tab-btn').forEach(b => b.classList.remove('active'));
+    const panel = document.getElementById(`risk-subpanel-${{name}}`);
     if (panel) panel.classList.add('active');
+    const btn = [...document.querySelectorAll('#t1-panel-risk .sub-tab-btn')]
+        .find(b => b.getAttribute('onclick') && b.getAttribute('onclick').includes(`'${{name}}'`));
+    if (btn) btn.classList.add('active');
+}}
+
+// 不依賴 event 的 mini-tab 切換（供 jumpToKPI 呼叫）
+function _activateNewDoneMiniTab(tab, type) {{
+    // 觸發 switchNewDone 但不依賴 event
+    const btnId = `${{tab}}-nd-btn-${{type}}`;
+    const btn = document.getElementById(btnId);
+    if (btn) {{
+        // 更新 active 樣式
+        document.querySelectorAll(`#${{tab}}-panel-newdone .mini-tab-btn`).forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+    }}
+    // 觸發渲染（重用 switchNewDone 邏輯，偽造 event）
+    const prevEvent = window.event;
+    try {{ switchNewDone(tab, type); }} catch(e) {{}}
+}}
+
+function jumpToDueSoon() {{
+    jumpToKPI('duesoon');
 }}
 
 // 需求 #1 & #3: 風險泳道篩選
@@ -1955,25 +2037,33 @@ function updateKPI(cards, startDt, endDt) {{
     const doingCount = cards.filter(c => c.isDoing).length;
     const waitingCount = cards.filter(c => c.isWaiting).length;
     const reviewCount = cards.filter(c => c.isReview).length;
-    const staleCount = cards.filter(c => c.isStale).length;
-    const noMemberCount = cards.filter(c => c.noMember && c.inPipeline).length;
 
-    const backlogCount = RAW.cards.filter(c =>
-        (RAW.listCategories.BACKLOG.includes(c.listId) || RAW.listCategories.READY.includes(c.listId)) && !c.archived
+    // 本週新風險：受篩選器影響（使用 filtered cards）
+    const newRiskCount = cards.filter(c =>
+        c.isNewRisk && !c.archived &&
+        !['DONE','Closed','過往卡片','過往卡片待青','Goal＆專案資訊'].includes(c.list)
     ).length;
 
     const dueSoonCount = RAW.cards.filter(c => c.isDueSoon && !c.archived).length;
 
     const kpiHtml = `
-        <div class="kpi-card">
-            <div class="kpi-label">本週新增 <span class="info-tip" data-tip="過去 7 天內新建立的卡片（以 createdAt 計算）">ℹ️</span></div>
-            <div class="kpi-value">${{newCount}}</div>
-        </div>
-        <div class="kpi-card">
+        <div class="kpi-card kpi-clickable" style="border-top:3px solid #43a047;" onclick="jumpToKPI('done')" title="點擊查看本週完成明細">
             <div class="kpi-label">本週完成 <span class="info-tip" data-tip="過去 7 天內移入 DONE 欄位的卡片（以 endAt 計算）">ℹ️</span></div>
             <div class="kpi-value">${{doneCount}}</div>
         </div>
-        <div class="kpi-card">
+        <div class="kpi-card kpi-clickable" style="border-top:3px solid #1976d2;" onclick="jumpToKPI('new')" title="點擊查看本週新增明細">
+            <div class="kpi-label">本週新增 <span class="info-tip" data-tip="過去 7 天內新建立的卡片（以 createdAt 計算）">ℹ️</span></div>
+            <div class="kpi-value">${{newCount}}</div>
+        </div>
+        <div class="kpi-card kpi-clickable alert" style="border-top:3px solid #c62828;" onclick="jumpToKPI('newrisk')" title="點擊查看本週新風險明細">
+            <div class="kpi-label">本週風險 <span class="info-tip" data-tip="本週才出現的風險卡：本週新逾期（dueAt 在近 7 天到期）＋ 本週才停滯（staleDays 14–20 天）＋ 即將到期；受篩選器影響">ℹ️</span></div>
+            <div class="kpi-value">${{newRiskCount}}</div>
+        </div>
+        <div class="kpi-card kpi-clickable" style="border-top:3px solid #f57f17;" onclick="jumpToKPI('duesoon')" title="點擊查看即將到期明細">
+            <div class="kpi-label">⚡ 即將到期 <span class="info-tip" data-tip="dueAt 在 {TODAY_DISPLAY} – {DUE_SOON_END_DISPLAY} 之間的卡片（排除 DONE / Closed；全看板計算，不受篩選器影響；以本儀表板產出日為基準）">ℹ️</span></div>
+            <div class="kpi-value">${{dueSoonCount}}</div>
+        </div>
+        <div class="kpi-card kpi-clickable" style="border-top:3px solid #7b1fa2;" onclick="jumpToKPI('doing')" title="點擊查看 Doing 明細">
             <div class="kpi-label">Doing</div>
             <div class="kpi-value">${{doingCount}}</div>
         </div>
@@ -1984,22 +2074,6 @@ function updateKPI(cards, startDt, endDt) {{
         <div class="kpi-card">
             <div class="kpi-label">Review</div>
             <div class="kpi-value">${{reviewCount}}</div>
-        </div>
-        <div class="kpi-card alert">
-            <div class="kpi-label">停滯卡片 <span class="info-tip" data-tip="停滯定義：卡片在 Pipeline（Doing / Waiting / Review）中，超過 14 天無任何活動（以最後活動日計算）">ℹ️</span></div>
-            <div class="kpi-value">${{staleCount}}</div>
-        </div>
-        <div class="kpi-card alert">
-            <div class="kpi-label">無負責人</div>
-            <div class="kpi-value">${{noMemberCount}}</div>
-        </div>
-        <div class="kpi-card warn">
-            <div class="kpi-label">待辦積壓 <span class="info-tip" data-tip="待辦積壓 = Backlog + Ready to GO 中尚未封存的卡片數，代表尚未進入執行流程的需求量">ℹ️</span></div>
-            <div class="kpi-value">${{backlogCount}}</div>
-        </div>
-        <div class="kpi-card" style="border-top:3px solid #f57f17; cursor:pointer;" onclick="jumpToDueSoon()" title="點擊查看明細">
-            <div class="kpi-label">⚡ 即將到期 <span class="info-tip" data-tip="dueAt 在 {TODAY_DISPLAY} – {DUE_SOON_END_DISPLAY} 之間的卡片（排除 DONE / Closed；全看板計算，不受篩選器影響；以本儀表板產出日為基準）">ℹ️</span></div>
-            <div class="kpi-value">${{dueSoonCount}}</div>
         </div>
     `;
 
@@ -2324,6 +2398,33 @@ function updateRiskTables(cards) {{
         </tr>`;
     }});
     document.getElementById('t1-risk-swim-table').querySelector('tbody').innerHTML = riskSwimHtml;
+
+    // 本週新風險分頁：受篩選器影響（使用 filteredCards1）
+    const newRiskCards = cards.filter(c =>
+        c.isNewRisk && !c.archived &&
+        !['DONE','Closed','過往卡片','過往卡片待青','Goal＆專案資訊'].includes(c.list)
+    ).sort((a, b) => {{
+        const riskTypeRank = c => c.isOverdue ? 0 : c.isDueSoon ? 1 : c.isStale ? 2 : 3;
+        const rankDiff = riskTypeRank(a) - riskTypeRank(b);
+        if (rankDiff !== 0) return rankDiff;
+        if (a.isDueSoon && b.isDueSoon) return new Date(a.dueAt) - new Date(b.dueAt);
+        return 0;
+    }});
+    let newRiskHtml = '';
+    newRiskCards.forEach(c => {{
+        newRiskHtml += `<tr>
+            <td>${{c.swimlane}}</td>
+            <td>${{cardLink(c.id, c.title)}}</td>
+            <td>${{c.dueAtDisplay ? `<strong>${{c.dueAtDisplay}}</strong>` : '-'}}</td>
+            <td><span class="badge">${{c.list}}</span></td>
+            <td>${{c.members.join(', ') || '無'}}</td>
+            <td>${{c.dateLastActivity.split('T')[0] || '-'}}</td>
+            <td>${{buildRiskBadges(c)}}</td>
+        </tr>`;
+    }});
+    if (!newRiskHtml) newRiskHtml = '<tr><td colspan="7" style="text-align:center;color:#999">本週目前無新出現的風險卡片</td></tr>';
+    const newRiskTbl = document.getElementById('t1-risk-newrisk-table');
+    if (newRiskTbl) newRiskTbl.querySelector('tbody').innerHTML = newRiskHtml;
 
     // 即將到期分頁：使用全看板 RAW.cards（不受篩選器影響），與 KPI 9 對齊
     const dueSoonCards = RAW.cards.filter(c => isRiskCard(c) && c.isDueSoon && !c.archived)
