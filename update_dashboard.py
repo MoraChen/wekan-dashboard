@@ -576,6 +576,12 @@ html = f"""<!DOCTYPE html>
         .parent-group-header:hover {{ background:#e0e8ff; }}
         .parent-group-body table {{ width:100%; border-collapse:collapse; margin:0; }}
         .parent-group-body {{ padding:0; }}
+        .child-list-group-header td {{
+            background:#f5f5f5; color:#555; font-size:0.8em; font-weight:600;
+            border-top:1px solid #e0e0e0; border-bottom:1px solid #e8e8e8;
+            padding:4px 8px; letter-spacing:0.03em;
+        }}
+        .child-depth-marker {{ color:#bbb; margin-right:2px; font-size:0.85em; }}
 
         .badge {{
             display: inline-block;
@@ -1372,6 +1378,7 @@ const PAGE_SIZE = 100;
 
 // 改動 4: 父子結構 Lazy Expand
 const parentGroupData = {{}};
+let currentChildrenMap = {{}}; // 遞迴父子展開用（由 renderParentGroups 更新）
 
 // ==================== 初始化 ====================
 
@@ -1538,39 +1545,127 @@ function switchMainTab(name) {{
 // ==================== Sub-Tab Switch ====================
 
 // 需求 #4: 展開/折疊父任務組
-// 改動 4: toggleGroup 新增 Lazy Expand 支援
-function toggleGroup(el, groupKey) {{
-    const body = el.nextElementSibling;
-    const isOpen = body.style.display !== 'none';
-    if (!isOpen && body.innerHTML === '') {{
-        // Lazy render children
-        const children = parentGroupData[groupKey] || [];
-        children.sort((a, b) => {{
-            const sA = a.swimlane || ''; const sB = b.swimlane || '';
-            if (sA !== sB) return sA.localeCompare(sB, 'zh-Hant');
-            return new Date(a.createdAt) - new Date(b.createdAt);
-        }});
-        const rows = children.map(c => {{
+// ==================== 父子結構：遞迴分組排序 ====================
+
+// 欄位分組順序（優先待處理，完成放最下）
+const CHILD_LIST_ORDER = ['Doing','Waiting','Review / 使用者Test','Ready to GO','準備中','Backlog','Closed','DONE'];
+
+// 取得欄位排序權重（未知欄位放中間）
+function listRank(listName) {{
+    const idx = CHILD_LIST_ORDER.indexOf(listName);
+    return idx === -1 ? CHILD_LIST_ORDER.length - 2 : idx;
+}}
+
+// 組內排序
+function sortCardsInGroup(cards, listName) {{
+    return [...cards].sort((a, b) => {{
+        let da, db;
+        if (listName === 'DONE') {{
+            da = a.endAt ? new Date(a.endAt) : new Date(a.dateLastActivity || 0);
+            db = b.endAt ? new Date(b.endAt) : new Date(b.dateLastActivity || 0);
+        }} else {{
+            da = new Date(a.dateLastActivity || 0);
+            db = new Date(b.dateLastActivity || 0);
+        }}
+        return db - da; // 新 → 舊
+    }});
+}}
+
+// 遞迴渲染子任務（帶分組標題，depth 控制縮排）
+function renderChildrenRecursive(parentId, childrenMap, depth) {{
+    const children = childrenMap[parentId] || [];
+    if (children.length === 0) return '';
+
+    // 依欄位分組
+    const groups = {{}};
+    children.forEach(c => {{
+        const key = c.list || '未知';
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(c);
+    }});
+
+    // 依 CHILD_LIST_ORDER 排序分組
+    const sortedLists = Object.keys(groups).sort((a, b) => listRank(a) - listRank(b));
+
+    const indentPx = depth * 20;
+    const indentStyle = `padding-left:${{indentPx + 8}}px`;
+    let html = '';
+
+    sortedLists.forEach(listName => {{
+        const groupCards = sortCardsInGroup(groups[listName], listName);
+
+        // 分組標題列
+        html += `<tr class="child-list-group-header">
+            <td colspan="7" style="${{indentStyle}}">
+                <span class="child-depth-marker">${{'│ '.repeat(depth)}}</span>▶ ${{listName}} (${{groupCards.length}})
+            </td>
+        </tr>`;
+
+        // 組內卡片
+        groupCards.forEach(c => {{
             const staleClass = c.isStale ? 'stale-badge' : 'active-badge';
             const staleLabel = c.isDone ? '完成' : (c.isStale ? `停滯${{c.staleDays}}天` : '活躍');
-            return `<tr>
-                <td>${{c.swimlane || '—'}}</td>
-                <td>${{cardLink(c.id, c.title)}}</td>
+            const hasGrandChildren = (childrenMap[c.id] || []).length > 0;
+            const titlePrefix = hasGrandChildren ? '📁 ' : '';
+            html += `<tr>
+                <td style="padding-left:${{indentPx + 12}}px">${{c.swimlane || '—'}}</td>
+                <td>${{titlePrefix}}${{cardLink(c.id, c.title)}}</td>
                 <td><span class="badge">${{c.list}}</span></td>
                 <td>${{c.members.join(', ') || '—'}}</td>
                 <td>${{(c.dateLastActivity || '').slice(0, 10)}}</td>
                 <td>${{c.staleDays != null ? c.staleDays : '—'}}</td>
                 <td><span class="badge ${{staleClass}}">${{staleLabel}}</span></td>
             </tr>`;
-        }}).join('');
-        body.innerHTML = `<table><thead><tr>
-            <th>專案</th><th>卡片名稱</th><th>欄位</th><th>負責人</th>
-            <th>最後活動日</th><th>停滯天數</th><th>狀態</th>
-        </tr></thead><tbody>${{rows}}</tbody></table>`;
+            // 遞迴展開孫任務
+            if (hasGrandChildren) {{
+                html += renderChildrenRecursive(c.id, childrenMap, depth + 1);
+            }}
+        }});
+    }});
+
+    return html;
+}}
+
+// toggleGroup：父任務點擊展開/收合
+function toggleGroup(el, groupKey, parentId) {{
+    const body = el.nextElementSibling;
+    const isOpen = body.style.display !== 'none';
+
+    if (!isOpen && body.innerHTML === '') {{
+        if (parentId) {{
+            // 父任務群組：遞迴渲染所有後代
+            const rows = renderChildrenRecursive(parentId, currentChildrenMap, 0);
+            body.innerHTML = `<table><thead><tr>
+                <th>專案</th><th>卡片名稱</th><th>欄位</th><th>負責人</th>
+                <th>最後活動日</th><th>停滯天數</th><th>狀態</th>
+            </tr></thead><tbody>${{rows || '<tr><td colspan="7" style="color:#999;text-align:center">無子任務</td></tr>'}}</tbody></table>`;
+        }} else {{
+            // 獨立卡片群組：平面渲染（原邏輯）
+            const children = parentGroupData[groupKey] || [];
+            children.sort((a, b) => new Date(b.dateLastActivity || 0) - new Date(a.dateLastActivity || 0));
+            const rows = children.map(c => {{
+                const staleClass = c.isStale ? 'stale-badge' : 'active-badge';
+                const staleLabel = c.isDone ? '完成' : (c.isStale ? `停滯${{c.staleDays}}天` : '活躍');
+                return `<tr>
+                    <td>${{c.swimlane || '—'}}</td>
+                    <td>${{cardLink(c.id, c.title)}}</td>
+                    <td><span class="badge">${{c.list}}</span></td>
+                    <td>${{c.members.join(', ') || '—'}}</td>
+                    <td>${{(c.dateLastActivity || '').slice(0, 10)}}</td>
+                    <td>${{c.staleDays != null ? c.staleDays : '—'}}</td>
+                    <td><span class="badge ${{staleClass}}">${{staleLabel}}</span></td>
+                </tr>`;
+            }}).join('');
+            body.innerHTML = `<table><thead><tr>
+                <th>專案</th><th>卡片名稱</th><th>欄位</th><th>負責人</th>
+                <th>最後活動日</th><th>停滯天數</th><th>狀態</th>
+            </tr></thead><tbody>${{rows || '<tr><td colspan="7" style="color:#999;text-align:center">無資料</td></tr>'}}</tbody></table>`;
+        }}
     }}
+
     body.style.display = isOpen ? 'none' : '';
     const arrow = el.querySelector('.pg-arrow');
-    if(arrow) arrow.textContent = isOpen ? '▶' : '▼';
+    if (arrow) arrow.textContent = isOpen ? '▶' : '▼';
 }}
 
 // 改動 A4: switchNewDone 函式
@@ -2563,46 +2658,61 @@ function updateTables1(cards, startDt, endDt) {{
     // 舊邏輯已移至各函式，此函式已不被調用（由 renderT1Panel 替代）
 }}
 
-// 改動 4: renderParentGroups 懶加載展開式群組
+// 改動 4: renderParentGroups — 遞迴分組排序版（Feature C-1）
 function renderParentGroups(tabName, cards) {{
     const containerId = tabName + '-parent-container';
     const container = document.getElementById(containerId);
-    if(!container) return;
+    if (!container) return;
 
-    // 找出所有父任務（有子卡片且自身無 parentId）
-    const parentCards = cards.filter(c => c.isParentTask);
-    const childrenOf = {{}};
-    cards.filter(c => c.isChildTask && c.parentId).forEach(c => {{
-        if(!childrenOf[c.parentId]) childrenOf[c.parentId] = [];
-        childrenOf[c.parentId].push(c);
+    // 建立全域 childrenMap（供 toggleGroup 遞迴使用）
+    const childrenMap = {{}};
+    cards.forEach(c => {{
+        if (c.parentId) {{
+            if (!childrenMap[c.parentId]) childrenMap[c.parentId] = [];
+            childrenMap[c.parentId].push(c);
+        }}
     }});
+    currentChildrenMap = childrenMap;
 
-    // 無父任務的卡片
+    // 計算某父任務的所有後代數量（遞迴）
+    function countDescendants(id) {{
+        const kids = childrenMap[id] || [];
+        return kids.reduce((sum, c) => sum + 1 + countDescendants(c.id), 0);
+    }}
+    // 計算完成後代數量
+    function countDone(id) {{
+        const kids = childrenMap[id] || [];
+        return kids.reduce((sum, c) => sum + (c.isDone ? 1 : 0) + countDone(c.id), 0);
+    }}
+
+    // 頂層父任務：有子任務且自身無 parentId
+    const parentCards = cards.filter(c => c.isParentTask);
+    // 獨立卡片
     const standaloneCards = cards.filter(c => c.isStandalone);
 
     let html = '';
+
     parentCards.forEach(p => {{
-        const children = childrenOf[p.id] || [];
-        if(children.length === 0) return;
+        const total = countDescendants(p.id);
+        if (total === 0) return;
+        const done = countDone(p.id);
         const groupKey = tabName + '__' + p.id;
-        parentGroupData[groupKey] = children;
-        const done = children.filter(c => c.isDone).length;
         html += `<div class="parent-group">
-            <div class="parent-group-header" onclick="toggleGroup(this,'${{groupKey}}')" style="cursor:pointer">
+            <div class="parent-group-header" onclick="toggleGroup(this,'${{groupKey}}','${{p.id}}')" style="cursor:pointer">
                 <span class="pg-arrow">▶</span>
-                父任務：${{p.title}}（${{children.length}} 項）[完成率：${{done}}/${{children.length}}]
+                父任務：${{p.title}}（${{total}} 項）[完成率：${{done}}/${{total}}]
             </div>
             <div class="parent-group-body" style="display:none"></div>
         </div>`;
     }});
 
-    // 獨立卡片群組
-    if(standaloneCards.length > 0) {{
+    // 獨立卡片群組（平面，不分組）
+    if (standaloneCards.length > 0) {{
         const groupKey = tabName + '__standalone';
         parentGroupData[groupKey] = standaloneCards;
         const done = standaloneCards.filter(c => c.isDone).length;
         html += `<div class="parent-group">
-            <div class="parent-group-header" onclick="toggleGroup(this,'${{groupKey}}')" style="cursor:pointer">
+            <div class="parent-group-header" onclick="toggleGroup(this,'${{groupKey}}',null)" style="cursor:pointer">
                 <span class="pg-arrow">▶</span>
                 獨立卡片（${{standaloneCards.length}} 項）[完成率：${{done}}/${{standaloneCards.length}}]
             </div>
@@ -2610,7 +2720,7 @@ function renderParentGroups(tabName, cards) {{
         </div>`;
     }}
 
-    if(!html) html = '<p style="color:#999;padding:16px">無資料</p>';
+    if (!html) html = '<p style="color:#999;padding:16px">無資料</p>';
     container.innerHTML = html;
 }}
 
