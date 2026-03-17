@@ -130,6 +130,7 @@ UI 表格、圖表、KPI 卡片
 | `isOverdue` | bool | 是否逾期 | `due_dt < NOW && !isDone` |
 | `isStale` | bool | 是否停滯 | `inPipeline && staleDays > STALE_DAYS(14)` |
 | `isDueSoon` | bool | 是否即將到期 | `NOW <= due_dt <= DUE_SOON_END && !isDone` |
+| `isNewRisk` | bool | 本週才出現的風險 | 本週新逾期 OR 本週才停滯（staleDays 14–20）OR isDueSoon |
 | `staleDays` | int \| null | 停滯天數 | `(NOW - dateLastActivity).days` |
 | `dueAtDisplay` | string | 到期日顯示（M/D）| `f"{due_dt.month}/{due_dt.day}"` |
 | `noMember` | bool | 是否無負責人 | `len(members) == 0` |
@@ -214,21 +215,43 @@ UI 表格、圖表、KPI 卡片
 | 封存狀態（多選） | archived-picker | — |
 | 任務結構（多選） | tasktype-picker | 父任務/子任務/獨立任務 |
 
-### 4-2. KPI 卡片（9 個）
+### 4-2. KPI 卡片（7 個，v6.3）
 
-| # | 名稱 | 定義 | 資料來源 | Tooltip | 特殊行為 |
-|---|------|------|---------|---------|---------|
-| 1 | 本週新增 | `createdAt` 在篩選區間內 | filteredCards1 | ✅ | — |
-| 2 | 本週完成 | `endAt` 在篩選區間內 && `isDone` | filteredCards1 | ✅ | — |
-| 3 | Doing 數 | `isDoing = true` | filteredCards1 | — | — |
-| 4 | Waiting 數 | `isWaiting = true` | filteredCards1 | — | — |
-| 5 | 追蹤中數 | `isReview = true` | filteredCards1 | — | — |
-| 6 | 停滯數 | `isStale = true` | filteredCards1 | ✅（停滯定義） | — |
-| 7 | 無負責人數 | `noMember = true` | filteredCards1 | — | — |
-| 8 | 待辦積壓 | Backlog + Ready to GO 未封存 | filteredCards1 | ✅ | — |
-| 9 | ⚡ 即將到期 | `isDueSoon = true && !archived` | **RAW.cards**（全看板） | ✅（日期區間）| 點擊跳至 duesoon 子分頁 |
+排列順序：本週完成 → 本週新增 → 本週風險 → 即將到期 → Doing → Waiting → Review
 
-> ⚠️ **KPI 9 資料來源不一致**：目前 KPI 9 用 `RAW.cards`（全看板），即將到期表格用 `filteredCards1`。這導致數字可能不同。**Feature B-1** 將修正此問題。
+| # | 名稱 | 定義 | 資料來源 | Tooltip | 點擊行為 | 頂框色 |
+|---|------|------|---------|---------|---------|--------|
+| 1 | 本週完成 | `endAt` 在篩選區間內 && `isDone` | filteredCards1 | ✅ | → 本週動態 > 本週完成 mini-tab | 綠 `#43a047` |
+| 2 | 本週新增 | `createdAt` 在篩選區間內 | filteredCards1 | ✅ | → 本週動態 > 本週新增 mini-tab | 藍 `#1976d2` |
+| 3 | 本週風險 🆕 | `isNewRisk = true && !archived && !DONE/Closed/...` | filteredCards1 | ✅（定義說明）| → 風險與停滯 > 🆕 本週新風險 sub-panel | 紅 `#c62828` |
+| 4 | ⚡ 即將到期 | `isDueSoon = true && !archived` | **RAW.cards**（全看板） | ✅（日期區間）| → 風險與停滯 > ⚡ 即將到期 sub-panel | 橙 `#f57f17` |
+| 5 | Doing | `isDoing = true` | filteredCards1 | — | → Doing 明細 sub-tab | 紫 `#7b1fa2` |
+| 6 | Waiting | `isWaiting = true` | filteredCards1 | — | 無 | — |
+| 7 | Review | `isReview = true` | filteredCards1 | — | 無 | — |
+
+> **已移除**（v6.3）：停滯數、無負責人數、待辦積壓。這些資訊仍可在風險與停滯子分頁的總覽表格查看。
+
+#### isNewRisk 定義
+
+```python
+is_new_risk = (
+    (is_overdue and due_dt and (NOW - due_dt).days <= 7)          # 本週新逾期
+    or (is_stale and STALE_DAYS < stale_days <= STALE_DAYS + 7)   # 本週才停滯（剛跨門檻）
+    or is_due_soon                                                  # 即將到期
+) and not is_done
+```
+
+#### KPI 點擊跳轉機制
+
+統一由 `jumpToKPI(type)` 函式處理，支援不依賴 DOM event 的直接切換：
+
+| type | 路徑 |
+|------|------|
+| `'done'` | `_switchTab1Direct('newdone')` → `_activateNewDoneMiniTab('t1','done')` |
+| `'new'` | `_switchTab1Direct('newdone')` → `_activateNewDoneMiniTab('t1','new')` |
+| `'newrisk'` | `_switchTab1Direct('risk')` → `_switchRiskSubTabDirect('newrisk')` |
+| `'duesoon'` | `_switchTab1Direct('risk')` → `_switchRiskSubTabDirect('duesoon')` |
+| `'doing'` | `_switchTab1Direct('doing')` |
 
 ### 4-3. Tab 1 子分頁（5 個）
 
@@ -236,7 +259,7 @@ UI 表格、圖表、KPI 卡片
 |--------|------|---------|
 | 📅 本週動態 | mini-tab 三切換（新增/完成/有異動） | ✅ 預設顯示 |
 | ▶️ Doing 明細 | 扁平清單，isDoing 卡片 | — |
-| 🔴 風險與停滯 | 三子分頁（總覽/泳道/即將到期） | — |
+| 🔴 風險與停滯 | 四子分頁（總覽/泳道/本週新風險/即將到期） | — |
 | 🌳 父子結構 | 父任務可展開，含泳道篩選 | — |
 | 📋 全部明細 | 分頁顯示（每頁 100 筆） | — |
 
@@ -618,7 +641,8 @@ if (summaryEl) summaryEl.innerHTML = buildRiskSummary(riskCards);
 | | | 準備中（新欄位）加入流程 |
 | **v6.1** | **2026-03-16** | **Feature B-1**：即將到期表格改全看板（KPI 與表格對齊） |
 | **v6.2** | **2026-03-16** | **Feature A-1**：風險摘要卡（逾期/即將到期/停滯/成員集中度）|
+| **v6.3** | **2026-03-17** | **KPI 重整**：KPI 從 9 個縮減為 7 個，重新排序，刪除停滯數/無負責人/待辦積壓；新增「本週風險」KPI（isNewRisk）；KPI 卡片可點擊，自動跳轉對應子分頁；風險子分頁新增「🆕 本週新風險」|
 
 ---
 
-*文件結束 — 下一步請依第五章待實作規格依序執行 Feature B-1，完成後更新狀態並移至第四章。*
+*文件結束 — 當前版本為 v6.3，第五章無待實作規格。下一步根據討論新增功能時，請依 Task D 工作流程先在第五章草擬規格，確認後執行。*
