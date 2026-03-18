@@ -577,6 +577,8 @@ if (summaryEl) summaryEl.innerHTML = buildRiskSummary(riskCards);
 | Swimlane 外部化 | `team_config.json → board.swimlanes_order` | 組織名稱不應進入公開 GitHub | 2026-03-15 |
 | 離線版分離 | `make_offline.py` 為純後製轉換 | 業務邏輯只在 `update_dashboard.py`，維護單一真相來源 | v4 |
 | 個人泳道觸發條件 | 選恰好 1 位成員 | 0 位或多位無法「專注」，設計上明確限制 | v4 |
+| 父任務狀態分群設計 | Tab 導覽（C-3，取代 C-2 水平分割線） | Tab 介面操作直覺，0 筆 Tab 直接灰化比折疊更清晰，預設 Doing 符合主要使用情境 | 2026-03-18 |
+| 父任務 Tab 順序 | 依 CHILD_LIST_ORDER 固定排列 | 與子任務分組順序一致，降低記憶成本 | 2026-03-18 |
 
 ---
 
@@ -641,7 +643,8 @@ if (summaryEl) summaryEl.innerHTML = buildRiskSummary(riskCards);
 | | | 準備中（新欄位）加入流程 |
 | **v6.1** | **2026-03-16** | **Feature B-1**：即將到期表格改全看板（KPI 與表格對齊） |
 | **v6.2** | **2026-03-16** | **Feature A-1**：風險摘要卡（逾期/即將到期/停滯/成員集中度）|
-| **v6.3** | **2026-03-17** | **KPI 重整**：KPI 從 9 個縮減為 7 個，重新排序，刪除停滯數/無負責人/待辦積壓；新增「本週風險」KPI（isNewRisk）；KPI 卡片可點擊，自動跳轉對應子分頁；風險子分頁新增「🆕 本週新風險」|
+| **v6.3** | **2026-03-17** | **KPI 重整**：KPI 從 9 個縮減為 7 個，重新排序，刪除停滯數/無負責人/待辦積壓；新增「本週風險」KPI（isNewRisk）；KPI 卡片可點擊，自動跳轉對應子分頁；風險子分頁新增「🆕 本週新風險」；**Feature C-1**：父子任務遞迴分組排序（子任務依欄位分群，DONE/Closed 依 endAt 排序，其餘依 dateLastActivity）；**Feature C-2**：父任務狀態水平分割線分群（C-3 取代前中間版本）|
+| **v6.4** | **2026-03-18** | **Feature C-3**：父任務狀態分群改為 Tab 導覽（固定 8 個 Tab，0 筆灰色不可點，DONE Tab 淡色，預設 Doing，`switchParentStatusTab` 函式）|
 
 ---
 

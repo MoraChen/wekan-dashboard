@@ -582,6 +582,12 @@ html = f"""<!DOCTYPE html>
             padding:4px 8px; letter-spacing:0.03em;
         }}
         .child-depth-marker {{ color:#bbb; margin-right:2px; font-size:0.85em; }}
+        /* 父任務狀態 Tab（Feature C-3）*/
+        .parent-status-panel {{ display:none; }}
+        .parent-status-panel.active {{ display:block; }}
+        .sub-tab-btn.pst-done {{ color:#aaa; }}
+        .sub-tab-btn.pst-done.active {{ color:#888; border-bottom-color:#888; }}
+        .sub-tab-btn.pst-zero {{ color:#ccc; cursor:default; pointer-events:none; }}
 
         .badge {{
             display: inline-block;
@@ -1546,6 +1552,20 @@ function switchMainTab(name) {{
 
 // 需求 #4: 展開/折疊父任務組
 // ==================== 父子結構：遞迴分組排序 ====================
+
+// 父任務狀態 Tab 切換（Feature C-3）
+function switchParentStatusTab(tabName, statusIdx) {{
+    const container = document.getElementById(tabName + '-parent-container');
+    if (!container) return;
+    // 切換 tab 按鈕 active
+    container.querySelectorAll('.parent-status-tab-bar .sub-tab-btn').forEach((b, i) => {{
+        b.classList.toggle('active', i === statusIdx);
+    }});
+    // 切換 panel
+    container.querySelectorAll('.parent-status-panel').forEach((p, i) => {{
+        p.classList.toggle('active', i === statusIdx);
+    }});
+}}
 
 // 欄位分組順序（優先待處理，完成放最下）
 const CHILD_LIST_ORDER = ['Doing','Waiting','Review / 使用者Test','Ready to GO','準備中','Backlog','Closed','DONE'];
@@ -2658,7 +2678,7 @@ function updateTables1(cards, startDt, endDt) {{
     // 舊邏輯已移至各函式，此函式已不被調用（由 renderT1Panel 替代）
 }}
 
-// 改動 4: renderParentGroups — 遞迴分組排序版（Feature C-1）
+// 改動 4: renderParentGroups — 遞迴分組排序 + 父任務狀態 Tab 版（Feature C-1 + C-3）
 function renderParentGroups(tabName, cards) {{
     const containerId = tabName + '-parent-container';
     const container = document.getElementById(containerId);
@@ -2679,7 +2699,6 @@ function renderParentGroups(tabName, cards) {{
         const kids = childrenMap[id] || [];
         return kids.reduce((sum, c) => sum + 1 + countDescendants(c.id), 0);
     }}
-    // 計算完成後代數量
     function countDone(id) {{
         const kids = childrenMap[id] || [];
         return kids.reduce((sum, c) => sum + (c.isDone ? 1 : 0) + countDone(c.id), 0);
@@ -2687,41 +2706,104 @@ function renderParentGroups(tabName, cards) {{
 
     // 頂層父任務：有子任務且自身無 parentId
     const parentCards = cards.filter(c => c.isParentTask);
-    // 獨立卡片
     const standaloneCards = cards.filter(c => c.isStandalone);
 
-    let html = '';
+    if (parentCards.length === 0 && standaloneCards.length === 0) {{
+        container.innerHTML = '<p style="color:#999;padding:16px">無資料</p>';
+        return;
+    }}
 
+    // 依父任務自身欄位分群
+    const statusGroups = {{}};
     parentCards.forEach(p => {{
-        const total = countDescendants(p.id);
-        if (total === 0) return;
-        const done = countDone(p.id);
-        const groupKey = tabName + '__' + p.id;
-        html += `<div class="parent-group">
-            <div class="parent-group-header" onclick="toggleGroup(this,'${{groupKey}}','${{p.id}}')" style="cursor:pointer">
-                <span class="pg-arrow">▶</span>
-                父任務：${{p.title}}（${{total}} 項）[完成率：${{done}}/${{total}}]
-            </div>
-            <div class="parent-group-body" style="display:none"></div>
-        </div>`;
+        const key = p.list || '未知';
+        if (!statusGroups[key]) statusGroups[key] = [];
+        statusGroups[key].push(p);
     }});
 
-    // 獨立卡片群組（平面，不分組）
-    if (standaloneCards.length > 0) {{
+    // 決定預設 active tab（優先 Doing，若無則找第一個非 0）
+    const hasStandalone = standaloneCards.length > 0;
+    const standaloneIdx = CHILD_LIST_ORDER.length; // 獨立卡片 tab 排最後
+    let defaultIdx = 0; // CHILD_LIST_ORDER[0] = 'Doing'
+    const doingCount = (statusGroups['Doing'] || []).length;
+    if (doingCount === 0) {{
+        const firstNonZero = CHILD_LIST_ORDER.findIndex(s => (statusGroups[s] || []).length > 0);
+        if (firstNonZero >= 0) {{
+            defaultIdx = firstNonZero;
+        }} else if (hasStandalone) {{
+            defaultIdx = standaloneIdx;
+        }}
+    }}
+
+    // ── Tab Bar ─────────────────────────────────────────────
+    let tabBarHtml = `<div class="parent-status-tab-bar" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:0;border-bottom:2px solid #e0e0e0;padding-bottom:0">`;
+
+    CHILD_LIST_ORDER.forEach((status, idx) => {{
+        const count = (statusGroups[status] || []).length;
+        const isDone = (status === 'DONE');
+        const isZero = (count === 0);
+        const isActive = (idx === defaultIdx);
+        let cls = 'sub-tab-btn';
+        if (isDone) cls += ' pst-done';
+        if (isZero) cls += ' pst-zero';
+        if (isActive) cls += ' active';
+        const onclickAttr = isZero ? '' : ` onclick="switchParentStatusTab('${{tabName}}',${{idx}})"`;
+        tabBarHtml += `<button class="${{cls}}"${{onclickAttr}}>${{status}} (${{count}})</button>`;
+    }});
+
+    // 獨立卡片 Tab
+    if (hasStandalone) {{
+        const isActive = (defaultIdx === standaloneIdx);
+        let cls = 'sub-tab-btn' + (isActive ? ' active' : '');
+        tabBarHtml += `<button class="${{cls}}" onclick="switchParentStatusTab('${{tabName}}',${{standaloneIdx}})">獨立卡片 (${{standaloneCards.length}})</button>`;
+    }}
+    tabBarHtml += `</div>`;
+
+    // ── Panels ──────────────────────────────────────────────
+    let panelsHtml = '';
+    CHILD_LIST_ORDER.forEach((status, idx) => {{
+        const isActive = (idx === defaultIdx);
+        const groupParents = statusGroups[status] || [];
+        panelsHtml += `<div class="parent-status-panel${{isActive ? ' active' : ''}}">`;
+
+        if (groupParents.length === 0) {{
+            panelsHtml += `<p style="color:#bbb;padding:12px 4px">此狀態目前無父任務</p>`;
+        }} else {{
+            groupParents.forEach(p => {{
+                const total = countDescendants(p.id);
+                if (total === 0) return;
+                const done = countDone(p.id);
+                const groupKey = tabName + '__' + p.id;
+                panelsHtml += `<div class="parent-group">
+                    <div class="parent-group-header" onclick="toggleGroup(this,'${{groupKey}}','${{p.id}}')" style="cursor:pointer">
+                        <span class="pg-arrow">▶</span>
+                        父任務：${{p.title}}（${{total}} 項）[完成率：${{done}}/${{total}}]
+                    </div>
+                    <div class="parent-group-body" style="display:none"></div>
+                </div>`;
+            }});
+        }}
+        panelsHtml += `</div>`;
+    }});
+
+    // 獨立卡片 Panel
+    if (hasStandalone) {{
+        const isActive = (defaultIdx === standaloneIdx);
         const groupKey = tabName + '__standalone';
         parentGroupData[groupKey] = standaloneCards;
         const done = standaloneCards.filter(c => c.isDone).length;
-        html += `<div class="parent-group">
-            <div class="parent-group-header" onclick="toggleGroup(this,'${{groupKey}}',null)" style="cursor:pointer">
-                <span class="pg-arrow">▶</span>
-                獨立卡片（${{standaloneCards.length}} 項）[完成率：${{done}}/${{standaloneCards.length}}]
+        panelsHtml += `<div class="parent-status-panel${{isActive ? ' active' : ''}}">
+            <div class="parent-group">
+                <div class="parent-group-header" onclick="toggleGroup(this,'${{groupKey}}',null)" style="cursor:pointer">
+                    <span class="pg-arrow">▶</span>
+                    獨立卡片（${{standaloneCards.length}} 項）[完成率：${{done}}/${{standaloneCards.length}}]
+                </div>
+                <div class="parent-group-body" style="display:none"></div>
             </div>
-            <div class="parent-group-body" style="display:none"></div>
         </div>`;
     }}
 
-    if (!html) html = '<p style="color:#999;padding:16px">無資料</p>';
-    container.innerHTML = html;
+    container.innerHTML = tabBarHtml + panelsHtml;
 }}
 
 function updateT1ParentTable(cards, swimFilter) {{
