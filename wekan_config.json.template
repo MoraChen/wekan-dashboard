@@ -1,0 +1,14 @@
+{
+  "_說明": "請複製此檔案為 wekan_config.json 並填入正確設定。此設定檔含有機密資訊，已列入 .gitignore 不會上傳 GitHub。",
+
+  "server_url": "https://your-wekan-server.com",
+
+  "_board_id_說明": "看板 ID 可從 Wekan 網址取得：https://wekan.maxlai.com/b/【這裡是Board_ID】/board-name",
+  "board_id": "YOUR_BOARD_ID",
+
+  "_user_id_說明": "在 Wekan 右上角選單 → 個人設定 → 使用者 ID，或從 API /api/user 取得",
+  "user_id": "YOUR_USER_ID",
+
+  "_api_token_說明": "在 Wekan 右上角選單 → 個人設定 → API 存取金鑰（Personal Access Token）",
+  "api_token": "YOUR_API_TOKEN"
+}

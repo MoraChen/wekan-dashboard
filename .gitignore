@@ -10,11 +10,17 @@
 # 真實成員設定（含姓名、內部 user ID）
 team_config.json
 
+# Wekan API 認證設定（含 API Token，絕對不上傳）
+wekan_config.json
+
 # Wekan 匯出的看板資料（含所有卡片、任務內容）
 wekan json/
 
 # 含組織名稱與成員資料的操作說明
 CLAUDE.md
+
+# 含系統名稱的最新版儀表板規格文件（SDD）
+Task_dashboard_v6_SDD.md
 
 # 含真實專案名稱的變更紀錄
 Changelog.md

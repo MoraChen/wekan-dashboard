@@ -24,11 +24,6 @@ OUT_DIR   = BASE_DIR
 TODAY_STR = datetime.now().strftime("%Y%m%d")
 OUT_FILE  = os.path.join(OUT_DIR, f"週報儀表板_{TODAY_STR}.html")
 
-# ── Wekan 卡片連結設定（填入你的 Wekan 位址）────────────
-# 格式：https://your-wekan/b/{boardId}/{slug}
-# 空字串 = 不顯示卡片連結
-WEKAN_CARD_URL_BASE = "https://wekan.maxlai.com/b/2cTqkd2koHCht3EXt/ai"
-
 # ── 找最新 JSON ─────────────────────────────────────────
 json_files = sorted(glob.glob(os.path.join(JSON_DIR, "*.json")), key=os.path.getmtime, reverse=True)
 if not json_files:
@@ -77,6 +72,13 @@ if os.path.exists(TEAM_CONFIG_PATH):
     _board = _cfg.get("board", {})
     swim_order_cfg       = _board.get("swimlanes_order", [])
     default_swim_sel_cfg = _board.get("default_swim_selections", [])
+else:
+    _board = {}
+
+# ── Wekan 卡片連結設定（從 team_config.json 的 board.wekan_card_url_base 讀取）─
+# 格式：https://your-wekan/b/{boardId}/{slug}
+# 空字串 = 不顯示卡片連結
+WEKAN_CARD_URL_BASE = _board.get("wekan_card_url_base", "")
 
 # 合併：以 fullname_map 覆蓋 users（無對應則保留 username）
 display_users = {uid: fullname_map.get(uid, uname) for uid, uname in users.items()}
@@ -208,7 +210,7 @@ weekly_trend = []
 for w in range(11, -1, -1):  # 從 11 週前到本週
     w_end   = NOW - timedelta(days=w * 7)
     w_start = w_end - timedelta(days=7)
-    label   = w_start.strftime("%-m/%-d") + "~" + w_end.strftime("%-m/%-d")
+    label   = f"{w_start.month}/{w_start.day}~{w_end.month}/{w_end.day}"
     count   = sum(
         1 for c in card_records
         if c.get("endAt") and c.get("isDone")
