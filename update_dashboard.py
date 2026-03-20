@@ -111,7 +111,7 @@ PIPELINE_IDS = set(DOING_IDS + WAIT_IDS + REVIEW_IDS)
 
 # ── JS 注入用：各排除清單與顯示順序（使用 List 標題）──────────────
 # 排除清單由角色自動推導，無需手動維護
-_risk_exclude  = _roles["done"]    + _roles["closed"] + _roles["info"]
+_risk_exclude  = _roles["done"]    + _roles["closed"] + _roles["info"] + _roles["backlog"]
 _act_exclude   = _roles["done"]    + _roles["closed"] + _roles["backlog"] + _roles["info"]
 _focus_exclude = _roles["backlog"] + _roles["info"]
 
@@ -124,6 +124,7 @@ ACT_EXCLUDE_JSON      = json.dumps(_act_exclude,         ensure_ascii=False)
 FOCUS_EXCLUDE_JSON    = json.dumps(_focus_exclude,       ensure_ascii=False)
 LIST_ORDER_JSON       = json.dumps(
     _cfg.get("board", {}).get("lists_order", []), ensure_ascii=False)
+READY_NAMES_JSON      = json.dumps(_roles["ready"],          ensure_ascii=False)
 
 # ── 父子任務關係 ─────────────────────────────────────────
 child_parent_ids = set(c.get("parentId","") for c in data["cards"] if c.get("parentId",""))
@@ -630,6 +631,9 @@ html = f"""<!DOCTYPE html>
             border: 1px solid #ffcc02;
             font-weight: 600;
         }}
+
+        /* 主題交替底色（方案 A：依 SWIM_ORDER 奇偶） */
+        .row-alt-bg {{ background-color: #e8f4fd !important; }}
 
         /* 風險摘要卡 */
         .risk-summary {{
@@ -1900,6 +1904,17 @@ function swimRank(name) {{
     return i >= 0 ? i : 9999;
 }}
 
+// 主題交替底色（方案 A）：依 SWIM_ORDER 位置奇偶決定
+// 偶數索引 = 白色（無額外 class），奇數索引 = 淡藍色（row-alt-bg）
+const SWIM_COLOR_MAP = {{}};
+(SWIM_ORDER.length > 0
+    ? SWIM_ORDER
+    : [...new Set(RAW.cards.map(c => c.swimlane))]
+).forEach((s, i) => {{ SWIM_COLOR_MAP[s] = i % 2; }});
+function getSwimRowClass(swimlane) {{
+    return SWIM_COLOR_MAP[swimlane] === 1 ? 'row-alt-bg' : '';
+}}
+
 function sortBySwim(cards) {{
     return [...cards].sort((a,b) => {{
         const rA = swimRank(a.swimlane||'');
@@ -2404,8 +2419,10 @@ function toggleSwimGroup(gid) {{
 
 // ==================== Table 1 (Overview) ====================
 
-// 風險分析排除 List（從 team_config.json lists_roles 推導：done + closed + info）
+// 風險分析排除 List（從 team_config.json lists_roles 推導：done + closed + info + backlog）
 const RISK_EXCLUDE_LISTS = {RISK_EXCLUDE_JSON};
+// Ready to GO 欄位：保留風險，但不顯示「無負責人」badge（尚未接手屬正常）
+const READY_LISTS = {READY_NAMES_JSON};
 function isRiskCard(c) {{
     if (RISK_EXCLUDE_LISTS.includes(c.list)) return false;
     if (c.archived) return false;
@@ -2453,14 +2470,21 @@ function buildRiskSummary(riskCards) {{
 }}
 
 function updateRiskTables(cards) {{
-    const riskCards = cards.filter(c => isRiskCard(c) && (c.isStale || c.isOverdue || c.noMember || c.isDueSoon));
+    // Ready to GO 卡片不因「無負責人」進入風險（未接手屬正常），但停滯/逾期/即將到期仍保留
+    const riskCards = cards.filter(c => {{
+        if (!isRiskCard(c)) return false;
+        if (c.isStale || c.isOverdue || c.isDueSoon) return true;
+        if (c.noMember && !READY_LISTS.includes(c.list)) return true;
+        return false;
+    }});
 
     // 更新風險摘要卡
     const summaryEl = document.getElementById('risk-summary-box');
     if (summaryEl) summaryEl.innerHTML = buildRiskSummary(riskCards);
 
-    // 總覽風險：逾期(0) → 即將到期(1) → 停滯(2,天數遞減) → 無負責人(3)
-    const riskTypeRank = c => c.isOverdue ? 0 : c.isDueSoon ? 1 : c.isStale ? 2 : 3;
+    // 總覽風險：逾期(0) → 即將到期(1) → 停滯(2,天數遞減) → 無負責人(3，Ready to GO 排除)
+    const riskTypeRank = c => c.isOverdue ? 0 : c.isDueSoon ? 1 : c.isStale ? 2 :
+        (c.noMember && !READY_LISTS.includes(c.list)) ? 3 : 4;
     const sortedRisk = riskCards.sort((a, b) => {{
         const rankDiff = riskTypeRank(a) - riskTypeRank(b);
         if (rankDiff !== 0) return rankDiff;
@@ -2476,14 +2500,15 @@ function updateRiskTables(cards) {{
         if (c.isOverdue)  badges.push('<span class="badge" style="background:#ffebee;color:#c62828;">逾期</span>');
         if (c.isDueSoon)  badges.push(`<span class="badge badge-due-soon">⚡ ${{c.dueAtDisplay}}</span>`);
         if (c.isStale)    badges.push('<span class="badge badge-stale">停滯</span>');
-        if (c.noMember)   badges.push('<span class="badge" style="background:#fff3e0;color:#e65100;">無負責</span>');
+        if (c.noMember && !READY_LISTS.includes(c.list))
+            badges.push('<span class="badge" style="background:#fff3e0;color:#e65100;">無負責</span>');
         return badges.join(' ') || '-';
     }}
 
     let riskOverviewHtml = '';
     sortedRisk.forEach(c => {{
         const clProgress = c.hasChecklist ? `${{c.clDone}}/${{c.clTotal}} (${{c.clPct}}%)` : '-';
-        riskOverviewHtml += `<tr>
+        riskOverviewHtml += `<tr class="${{getSwimRowClass(c.swimlane)}}">
             <td>${{c.swimlane}}</td>
             <td>${{cardLink(c.id, c.title)}}</td>
             <td>${{c.dueAtDisplay || '-'}}</td>
@@ -2502,7 +2527,7 @@ function updateRiskTables(cards) {{
     let riskSwimHtml = '';
     swimmingRisk.forEach(c => {{
         const clProgress = c.hasChecklist ? `${{c.clDone}}/${{c.clTotal}} (${{c.clPct}}%)` : '-';
-        riskSwimHtml += `<tr>
+        riskSwimHtml += `<tr class="${{getSwimRowClass(c.swimlane)}}">
             <td>${{c.swimlane}}</td>
             <td>${{cardLink(c.id, c.title)}}</td>
             <td>${{c.dueAtDisplay || '-'}}</td>
@@ -2529,7 +2554,7 @@ function updateRiskTables(cards) {{
     }});
     let newRiskHtml = '';
     newRiskCards.forEach(c => {{
-        newRiskHtml += `<tr>
+        newRiskHtml += `<tr class="${{getSwimRowClass(c.swimlane)}}">
             <td>${{c.swimlane}}</td>
             <td>${{cardLink(c.id, c.title)}}</td>
             <td>${{c.dueAtDisplay ? `<strong>${{c.dueAtDisplay}}</strong>` : '-'}}</td>
@@ -2548,7 +2573,7 @@ function updateRiskTables(cards) {{
         .sort((a, b) => new Date(a.dueAt) - new Date(b.dueAt));
     let dueSoonHtml = '';
     dueSoonCards.forEach(c => {{
-        dueSoonHtml += `<tr>
+        dueSoonHtml += `<tr class="${{getSwimRowClass(c.swimlane)}}">
             <td>${{c.swimlane}}</td>
             <td>${{cardLink(c.id, c.title)}}</td>
             <td><strong>${{c.dueAtDisplay || '-'}}</strong></td>
@@ -2573,7 +2598,7 @@ function renderNewDone1(cards, startDt, endDt) {{
     }}));
     let newHtml = '';
     newCards.forEach(c => {{
-        newHtml += `<tr>
+        newHtml += `<tr class="${{getSwimRowClass(c.swimlane)}}">
             <td>${{c.swimlane||'—'}}</td>
             <td>${{cardLink(c.id, c.title)}}</td>
             <td><span class="badge">${{c.list}}</span></td>
@@ -2590,7 +2615,7 @@ function renderNewDone1(cards, startDt, endDt) {{
     let doneHtml = '';
     doneCards.forEach(c => {{
         const et = new Date(c.endAt);
-        doneHtml += `<tr>
+        doneHtml += `<tr class="${{getSwimRowClass(c.swimlane)}}">
             <td>${{c.swimlane||'—'}}</td>
             <td>${{cardLink(c.id, c.title)}}</td>
             <td>${{c.members.join(', ') || '無'}}</td>
@@ -2607,7 +2632,7 @@ function renderNewDone1(cards, startDt, endDt) {{
         const dt = new Date(c.dateLastActivity);
         return dt >= startDt && dt <= endDt;
     }}).sort((a, b) => new Date(b.dateLastActivity) - new Date(a.dateLastActivity));
-    const actHtml = actCards.map(c => `<tr>
+    const actHtml = actCards.map(c => `<tr class="${{getSwimRowClass(c.swimlane)}}">
         <td>${{c.swimlane||'—'}}</td>
         <td>${{cardLink(c.id,c.title)}}</td>
         <td><span class="badge">${{c.list}}</span></td>
@@ -2626,7 +2651,7 @@ function renderDoing1(cards) {{
         const staleBadge = c.isStale ? `<span class="badge badge-stale">停滯${{c.staleDays}}天</span>` :
                           '<span class="badge" style="background:#e8f5e9;color:#2e7d32;">活躍</span>';
         const dueSoonBadge = c.isDueSoon ? `<span class="badge badge-due-soon">⚡ ${{c.dueAtDisplay}}</span>` : '';
-        doingHtml += `<tr>
+        doingHtml += `<tr class="${{getSwimRowClass(c.swimlane)}}">
             <td>${{c.swimlane}}</td>
             <td>${{cardLink(c.id, c.title)}}</td>
             <td>${{c.staleDays || '-'}}</td>
@@ -2653,7 +2678,7 @@ function renderAll1(cards) {{
                           '<span class="badge" style="background:#e8f5e9;color:#2e7d32;">活躍</span>';
         const clProgress = c.hasChecklist ? `${{c.clDone}}/${{c.clTotal}} (${{c.clPct}}%)` : '-';
         const labelsStr = c.labels.length > 0 ? c.labels.join(', ') : '-';
-        allHtml += `<tr>
+        allHtml += `<tr class="${{getSwimRowClass(c.swimlane)}}">
             <td>${{c.swimlane}}</td>
             <td>${{cardLink(c.id, c.title)}}</td>
             <td>${{c.members.join(', ') || '無'}}</td>
@@ -2840,8 +2865,9 @@ function updatePersonalFocus(memberId, filteredCards, startDt, endDt) {{
         // 計算完成率
         const done = swCards.filter(c => c.isDone).length;
         const total = swCards.length;
-        focusHtml += `<div class="focus-row" onclick="toggleFocusRow(this)"><strong>泳道：${{swim}}</strong> (${{total}} 項) [完成率：${{done}}/${{total}}]</div>`;
-        focusHtml += `<div class="focus-children">`;
+        const swimRowCls = getSwimRowClass(swim);
+        focusHtml += `<div class="focus-row ${{swimRowCls}}" onclick="toggleFocusRow(this)"><strong>泳道：${{swim}}</strong> (${{total}} 項) [完成率：${{done}}/${{total}}]</div>`;
+        focusHtml += `<div class="focus-children ${{swimRowCls}}">`;
         swCards.forEach(c => {{
             const statusBadge = c.isDone ? '<span class="badge badge-done">DONE</span>' :
                                c.isDoing ? '<span class="badge badge-doing">Doing</span>' :
@@ -2878,7 +2904,7 @@ function renderNewDone2(cards, startDt, endDt) {{
     }}));
     let newHtml = '';
     newCards.forEach(c => {{
-        newHtml += `<tr>
+        newHtml += `<tr class="${{getSwimRowClass(c.swimlane)}}">
             <td>${{c.swimlane}}</td>
             <td>${{cardLink(c.id, c.title)}}</td>
             <td><span class="badge">${{c.list}}</span></td>
@@ -2895,7 +2921,7 @@ function renderNewDone2(cards, startDt, endDt) {{
     let doneHtml = '';
     doneCards.forEach(c => {{
         const et = new Date(c.endAt);
-        doneHtml += `<tr>
+        doneHtml += `<tr class="${{getSwimRowClass(c.swimlane)}}">
             <td>${{c.swimlane}}</td>
             <td>${{cardLink(c.id, c.title)}}</td>
             <td>${{c.members.join(', ') || '無'}}</td>
@@ -2918,7 +2944,7 @@ function renderNewDone2(cards, startDt, endDt) {{
     }}).sort((a, b) => new Date(b.dateLastActivity) - new Date(a.dateLastActivity));
     let actHtml = '';
     actCards.forEach(c => {{
-        actHtml += `<tr>
+        actHtml += `<tr class="${{getSwimRowClass(c.swimlane)}}">
             <td>${{c.swimlane}}</td>
             <td>${{cardLink(c.id, c.title)}}</td>
             <td><span class="badge">${{c.list}}</span></td>
@@ -2943,7 +2969,7 @@ function renderAll2(cards) {{
                           '<span class="badge" style="background:#e8f5e9;color:#2e7d32;">活躍</span>';
         const clProgress = c.hasChecklist ? `${{c.clDone}}/${{c.clTotal}} (${{c.clPct}}%)` : '-';
         const labelsStr = c.labels.length > 0 ? c.labels.join(', ') : '-';
-        allHtml += `<tr>
+        allHtml += `<tr class="${{getSwimRowClass(c.swimlane)}}">
             <td>${{c.swimlane}}</td>
             <td>${{cardLink(c.id, c.title)}}</td>
             <td>${{c.members.join(', ') || '無'}}</td>
