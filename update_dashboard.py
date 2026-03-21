@@ -713,6 +713,12 @@ html = f"""<!DOCTYPE html>
         .nd-cmp-row-head:active {{ cursor:grabbing; }}
         .nd-cmp-drag-handle {{ color:#bbb; font-size:1em; flex-shrink:0; }}
         .nd-cmp-swim-name {{ font-size:0.82em; font-weight:700; color:#1a4f7a; }}
+        .nd-cmp-pipe-badges {{ display:flex; gap:4px; align-items:center; flex-shrink:0; }}
+        .nd-cmp-pipe-badge {{ font-size:0.73em; padding:1px 7px; border-radius:10px; font-weight:600; white-space:nowrap; border:1px solid transparent; }}
+        .nd-cmp-pipe-badge.doing   {{ background:#e3f2fd; color:#1565c0; border-color:#90caf9; }}
+        .nd-cmp-pipe-badge.waiting {{ background:#fff3e0; color:#e65100; border-color:#ffcc80; }}
+        .nd-cmp-pipe-badge.review  {{ background:#f3e5f5; color:#6a1b9a; border-color:#ce93d8; }}
+        .nd-cmp-pipe-badge.zero    {{ opacity:0.28; }}
         .nd-cmp-row-body {{ display:flex; }}
         .nd-cmp-cell {{ flex:1; min-width:0; padding:6px 8px; border-right:1px solid #e4eff9; }}
         .nd-cmp-cell:last-child {{ border-right:none; }}
@@ -2271,10 +2277,10 @@ function _renderNDCompareIfNeeded(tabN) {{
     }});
 
     const wrap = document.getElementById('t' + tabN + '-nd-cmp-wrap');
-    if (wrap) wrap.innerHTML = _buildNDCompareHTML(newCards, doneCards, tabN);
+    if (wrap) wrap.innerHTML = _buildNDCompareHTML(newCards, doneCards, tabN, cards);
 }}
 
-function _buildNDCompareHTML(newCards, doneCards, tabN) {{
+function _buildNDCompareHTML(newCards, doneCards, tabN, allCards) {{
     // 取兩側主題聯集
     const swimSet = new Set([...newCards.map(c => c.swimlane), ...doneCards.map(c => c.swimlane)]);
     let swims = Array.from(swimSet);
@@ -2306,12 +2312,32 @@ function _buildNDCompareHTML(newCards, doneCards, tabN) {{
     }};
 
     // 組合逐列 HTML
+    // Pipeline 計數用（allCards = 篩選後全部卡片，不限日期）
+    const pipeBySwim = {{}};
+    if (allCards) {{
+        allCards.forEach(c => {{
+            if (!pipeBySwim[c.swimlane]) pipeBySwim[c.swimlane] = {{ doing:0, waiting:0, review:0 }};
+            if (c.isDoing)   pipeBySwim[c.swimlane].doing++;
+            if (c.isWaiting) pipeBySwim[c.swimlane].waiting++;
+            if (c.isReview)  pipeBySwim[c.swimlane].review++;
+        }});
+    }}
+
     let rowsHtml = '';
     swims.forEach(swim => {{
         const nc = bySwimNew[swim]  || [];
         const dc = bySwimDone[swim] || [];
         const newCellHTML  = nc.length ? nc.map(cardRow).join('') : '<div class="nd-cmp-empty">本週無新增</div>';
         const doneCellHTML = dc.length ? dc.map(cardRow).join('') : '<div class="nd-cmp-empty">本週無完成</div>';
+
+        // Pipeline badge（依現況統計，非日期篩選）
+        const pipe = pipeBySwim[swim] || {{ doing:0, waiting:0, review:0 }};
+        const badgeHtml = `<div class="nd-cmp-pipe-badges">
+            <span class="nd-cmp-pipe-badge doing${{pipe.doing===0?' zero':''}}">Doing ${{pipe.doing}}</span>
+            <span class="nd-cmp-pipe-badge waiting${{pipe.waiting===0?' zero':''}}">Waiting ${{pipe.waiting}}</span>
+            <span class="nd-cmp-pipe-badge review${{pipe.review===0?' zero':''}}">Review ${{pipe.review}}</span>
+        </div>`;
+
         rowsHtml += `<div class="nd-cmp-row" data-swim="${{swim}}" draggable="true"
             ondragstart="_ndDragStart(event)"
             ondragend="_ndDragEnd(event)"
@@ -2321,6 +2347,7 @@ function _buildNDCompareHTML(newCards, doneCards, tabN) {{
             <div class="nd-cmp-row-head">
                 <span class="nd-cmp-drag-handle">⠿</span>
                 <span class="nd-cmp-swim-name">${{swim}}</span>
+                ${{badgeHtml}}
             </div>
             <div class="nd-cmp-row-body">
                 <div class="nd-cmp-cell">${{doneCellHTML}}</div>
