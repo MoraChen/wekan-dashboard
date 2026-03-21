@@ -126,6 +126,16 @@ LIST_ORDER_JSON       = json.dumps(
     _cfg.get("board", {}).get("lists_order", []), ensure_ascii=False)
 READY_NAMES_JSON      = json.dumps(_roles["ready"],          ensure_ascii=False)
 
+# 本週有異動分群順序：review → doing → 未分類欄位（如「準備中」）→ waiting → ready
+_known_role_lists = set(
+    _roles["done"] + _roles["closed"] + _roles["doing"] + _roles["waiting"] +
+    _roles["review"] + _roles["backlog"] + _roles["ready"] + _roles["info"]
+)
+_lists_in_order   = _cfg.get("board", {}).get("lists_order", [])
+_unclassified     = [l for l in _lists_in_order if l not in _known_role_lists]
+_act_group_order  = _roles["review"] + _roles["doing"] + _unclassified + _roles["waiting"] + _roles["ready"]
+ACT_GROUP_ORDER_JSON = json.dumps(_act_group_order, ensure_ascii=False)
+
 # ── 父子任務關係 ─────────────────────────────────────────
 child_parent_ids = set(c.get("parentId","") for c in data["cards"] if c.get("parentId",""))
 
@@ -635,6 +645,22 @@ html = f"""<!DOCTYPE html>
         /* 主題交替底色（方案 A：依 SWIM_ORDER 奇偶） */
         .row-alt-bg {{ background-color: #e8f4fd !important; }}
 
+        /* 本週有異動 欄位分群（可折疊卡片） */
+        .act-group-card {{ border: 1px solid #cce0f5; border-radius: 6px; margin-bottom: 8px; overflow: hidden; }}
+        .act-group-hdr {{
+            background: #ddeaf6; color: #1a4f7a; font-weight: 600;
+            padding: 8px 14px; cursor: pointer; display: flex; align-items: center; gap: 8px;
+            font-size: 0.87em; letter-spacing: 0.03em; user-select: none;
+        }}
+        .act-group-hdr:hover {{ background: #c8d8ec; }}
+        .act-group-arrow {{ display:inline-block; transition: transform 0.2s; font-size: 0.8em; }}
+        .act-group-card.collapsed .act-group-arrow {{ transform: rotate(-90deg); }}
+        .act-group-body {{ overflow-x: auto; }}
+        .act-group-card.collapsed .act-group-body {{ display: none; }}
+        .act-group-table {{ width: 100%; border-collapse: collapse; }}
+        .act-group-table th {{ background: #f5f8fc; color: #555; font-size: 0.84em; padding: 6px 10px; border-bottom: 1px solid #dde6f0; text-align:left; }}
+        .act-group-table td {{ padding: 6px 10px; border-bottom: 1px solid #edf1f5; }}
+
         /* 風險摘要卡 */
         .risk-summary {{
             padding: 12px 16px;
@@ -1124,14 +1150,7 @@ html = f"""<!DOCTYPE html>
             </div>
         </div>
         <div id="t1-nd-activity" style="display:none">
-            <div style="overflow-x:auto">
-            <table id="t1-newdone-activity-table" style="width:100%">
-                <thead><tr>
-                    <th>專案</th><th>卡片名稱</th><th>欄位</th><th>負責人</th><th>最後活動日</th>
-                </tr></thead>
-                <tbody></tbody>
-            </table>
-            </div>
+            <div id="t1-nd-act-wrap" style="padding:4px 0"></div>
         </div>
     </div>
 
@@ -1315,14 +1334,7 @@ html = f"""<!DOCTYPE html>
             </div>
         </div>
         <div id="t2-nd-activity" style="display:none">
-            <div style="overflow-x:auto">
-            <table id="t2-newdone-activity-table" style="width:100%">
-                <thead><tr>
-                    <th>專案</th><th>卡片名稱</th><th>欄位</th><th>負責人</th><th>最後活動日</th>
-                </tr></thead>
-                <tbody></tbody>
-            </table>
-            </div>
+            <div id="t2-nd-act-wrap" style="padding:4px 0"></div>
         </div>
     </div>
 
@@ -1914,6 +1926,7 @@ const SWIM_COLOR_MAP = {{}};
 function getSwimRowClass(swimlane) {{
     return SWIM_COLOR_MAP[swimlane] === 1 ? 'row-alt-bg' : '';
 }}
+function toggleActGroup(el) {{ el.parentElement.classList.toggle('collapsed'); }}
 
 function sortBySwim(cards) {{
     return [...cards].sort((a,b) => {{
@@ -2624,23 +2637,55 @@ function renderNewDone1(cards, startDt, endDt) {{
     }});
     document.getElementById('t1-newdone-done-table').querySelector('tbody').innerHTML = doneHtml;
 
-    // 本週有異動（排除 done + closed + backlog + info），依最後活動日由新到舊
+    // 本週有異動：依欄位分群（Review→Doing→準備中→Waiting→Ready to GO），群組內依 dateLastActivity 由新到舊
     const ACT_EXCLUDE = {ACT_EXCLUDE_JSON};
-    const actCards = cards.filter(c => {{
+    const ACT_GROUP_ORDER = {ACT_GROUP_ORDER_JSON};
+    const actCards1 = cards.filter(c => {{
         if (!c.dateLastActivity) return false;
         if (ACT_EXCLUDE.includes(c.list)) return false;
         const dt = new Date(c.dateLastActivity);
         return dt >= startDt && dt <= endDt;
-    }}).sort((a, b) => new Date(b.dateLastActivity) - new Date(a.dateLastActivity));
-    const actHtml = actCards.map(c => `<tr class="${{getSwimRowClass(c.swimlane)}}">
-        <td>${{c.swimlane||'—'}}</td>
-        <td>${{cardLink(c.id,c.title)}}</td>
-        <td><span class="badge">${{c.list}}</span></td>
-        <td>${{c.members.join(', ')||'—'}}</td>
-        <td>${{(c.dateLastActivity||'').slice(0,10)}}</td>
-    </tr>`).join('') || '<tr><td colspan="5" style="text-align:center;color:#999">本週無異動卡片</td></tr>';
-    const actTbl = document.getElementById('t1-newdone-activity-table');
-    if(actTbl) actTbl.querySelector('tbody').innerHTML = actHtml;
+    }});
+    // 依 list 分群，群組內依 dateLastActivity 由新到舊
+    const actByList1 = {{}};
+    actCards1.forEach(c => {{
+        if (!actByList1[c.list]) actByList1[c.list] = [];
+        actByList1[c.list].push(c);
+    }});
+    Object.values(actByList1).forEach(arr => arr.sort((a, b) => new Date(b.dateLastActivity) - new Date(a.dateLastActivity)));
+    let actWrapHtml1 = '';
+    if (actCards1.length === 0) {{
+        actWrapHtml1 = '<p style="text-align:center;color:#999;padding:16px;">本週無異動卡片</p>';
+    }} else {{
+        ACT_GROUP_ORDER.forEach(listName => {{
+            const gc = actByList1[listName] || [];
+            const collapsed = gc.length === 0 ? ' collapsed' : '';
+            let rowsHtml = '';
+            gc.forEach(c => {{
+                rowsHtml += `<tr>
+                    <td>${{c.swimlane||'—'}}</td>
+                    <td>${{cardLink(c.id,c.title)}}</td>
+                    <td><span class="badge">${{c.list}}</span></td>
+                    <td>${{c.members.join(', ')||'—'}}</td>
+                    <td>${{(c.dateLastActivity||'').slice(0,10)}}</td>
+                </tr>`;
+            }});
+            actWrapHtml1 += `<div class="act-group-card${{collapsed}}">
+                <div class="act-group-hdr" onclick="toggleActGroup(this)">
+                    <span class="act-group-arrow">▼</span>
+                    <span>▌ ${{listName}}（${{gc.length}}）</span>
+                </div>
+                <div class="act-group-body">
+                    <table class="act-group-table">
+                        <thead><tr><th>專案</th><th>卡片名稱</th><th>欄位</th><th>負責人</th><th>最後活動日</th></tr></thead>
+                        <tbody>${{rowsHtml}}</tbody>
+                    </table>
+                </div>
+            </div>`;
+        }});
+    }}
+    const actWrap1 = document.getElementById('t1-nd-act-wrap');
+    if(actWrap1) actWrap1.innerHTML = actWrapHtml1;
 }}
 
 function renderDoing1(cards) {{
@@ -2930,9 +2975,10 @@ function renderNewDone2(cards, startDt, endDt) {{
     }});
     document.getElementById('t2-newdone-done-table').querySelector('tbody').innerHTML = doneHtml;
 
-    // 本週有異動：dateLastActivity 落在本週區間，排除本週新增／完成 及 done + closed + backlog + info，依最後活動日由新到舊
+    // 本週有異動：依欄位分群（Review→Doing→準備中→Waiting→Ready to GO），群組內依 dateLastActivity 由新到舊
     const ACT_EXCLUDE2 = {ACT_EXCLUDE_JSON};
-    const actCards = cards.filter(c => {{
+    const ACT_GROUP_ORDER2 = {ACT_GROUP_ORDER_JSON};
+    const actCards2 = cards.filter(c => {{
         const at = c.dateLastActivity ? new Date(c.dateLastActivity) : null;
         if (!at || at < startDt || at > endDt) return false;
         if (ACT_EXCLUDE2.includes(c.list)) return false;
@@ -2941,18 +2987,47 @@ function renderNewDone2(cards, startDt, endDt) {{
         const et = c.endAt ? new Date(c.endAt) : null;
         const isDoneThisWeek = c.isDone && et && et >= startDt && et <= endDt;
         return !isNew && !isDoneThisWeek;
-    }}).sort((a, b) => new Date(b.dateLastActivity) - new Date(a.dateLastActivity));
-    let actHtml = '';
-    actCards.forEach(c => {{
-        actHtml += `<tr class="${{getSwimRowClass(c.swimlane)}}">
-            <td>${{c.swimlane}}</td>
-            <td>${{cardLink(c.id, c.title)}}</td>
-            <td><span class="badge">${{c.list}}</span></td>
-            <td>${{c.members.join(', ') || '無'}}</td>
-            <td>${{c.dateLastActivity.split('T')[0]}}</td>
-        </tr>`;
     }});
-    document.getElementById('t2-newdone-activity-table').querySelector('tbody').innerHTML = actHtml;
+    // 依 list 分群，群組內依 dateLastActivity 由新到舊
+    const actByList2 = {{}};
+    actCards2.forEach(c => {{
+        if (!actByList2[c.list]) actByList2[c.list] = [];
+        actByList2[c.list].push(c);
+    }});
+    Object.values(actByList2).forEach(arr => arr.sort((a, b) => new Date(b.dateLastActivity) - new Date(a.dateLastActivity)));
+    let actWrapHtml2 = '';
+    if (actCards2.length === 0) {{
+        actWrapHtml2 = '<p style="text-align:center;color:#999;padding:16px;">本週無異動卡片</p>';
+    }} else {{
+        ACT_GROUP_ORDER2.forEach(listName => {{
+            const gc = actByList2[listName] || [];
+            const collapsed = gc.length === 0 ? ' collapsed' : '';
+            let rowsHtml = '';
+            gc.forEach(c => {{
+                rowsHtml += `<tr>
+                    <td>${{c.swimlane}}</td>
+                    <td>${{cardLink(c.id, c.title)}}</td>
+                    <td><span class="badge">${{c.list}}</span></td>
+                    <td>${{c.members.join(', ') || '無'}}</td>
+                    <td>${{c.dateLastActivity.split('T')[0]}}</td>
+                </tr>`;
+            }});
+            actWrapHtml2 += `<div class="act-group-card${{collapsed}}">
+                <div class="act-group-hdr" onclick="toggleActGroup(this)">
+                    <span class="act-group-arrow">▼</span>
+                    <span>▌ ${{listName}}（${{gc.length}}）</span>
+                </div>
+                <div class="act-group-body">
+                    <table class="act-group-table">
+                        <thead><tr><th>專案</th><th>卡片名稱</th><th>欄位</th><th>負責人</th><th>最後活動日</th></tr></thead>
+                        <tbody>${{rowsHtml}}</tbody>
+                    </table>
+                </div>
+            </div>`;
+        }});
+    }}
+    const actWrap2 = document.getElementById('t2-nd-act-wrap');
+    if(actWrap2) actWrap2.innerHTML = actWrapHtml2;
 }}
 
 function renderAll2(cards) {{
