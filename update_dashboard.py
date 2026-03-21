@@ -24,6 +24,20 @@ OUT_DIR   = BASE_DIR
 TODAY_STR = datetime.now().strftime("%Y%m%d")
 OUT_FILE  = os.path.join(OUT_DIR, f"週報儀表板_{TODAY_STR}.html")
 
+# ── 讀取 AI 分析設定（ai_analysis_config.yaml） ──────────
+_ai_cfg_path = os.path.join(BASE_DIR, "ai_analysis_config.yaml")
+AI_SAVE_FOLDER   = "AI分析結果"
+AI_FILENAME_PREFIX = "AI分析"
+if os.path.exists(_ai_cfg_path):
+    try:
+        import yaml
+        with open(_ai_cfg_path, "r", encoding="utf-8") as _f:
+            _cfg = yaml.safe_load(_f) or {}
+        AI_SAVE_FOLDER     = _cfg.get("save_folder", AI_SAVE_FOLDER)
+        AI_FILENAME_PREFIX = _cfg.get("filename_prefix", AI_FILENAME_PREFIX)
+    except Exception as _e:
+        print(f"⚠️  ai_analysis_config.yaml 讀取失敗，使用預設值：{_e}")
+
 # ── 找最新 JSON ─────────────────────────────────────────
 json_files = sorted(glob.glob(os.path.join(JSON_DIR, "*.json")), key=os.path.getmtime, reverse=True)
 if not json_files:
@@ -215,6 +229,42 @@ for c in data["cards"]:
         "isStandalone":     cid not in child_parent_ids and not bool(c.get("parentId","")),
         # cardNumber 已移除（JS 未使用）
     })
+
+# ── AI 分析 Tab 資料（本週新增 / 完成 / 風險 / Doing）────
+_risk_exclude_set = set(_risk_exclude)
+
+_ai_new = [
+    {"swimlane": r["swimlane"], "title": r["title"],
+     "members": r["members"], "list": r["list"]}
+    for r in card_records
+    if r["createdAt"] and parse_dt(r["createdAt"]) and parse_dt(r["createdAt"]) >= WEEK_START
+    and not r["archived"]
+]
+_ai_done = [
+    {"swimlane": r["swimlane"], "title": r["title"], "members": r["members"]}
+    for r in card_records
+    if r["isDone"] and r["endAt"] and parse_dt(r["endAt"]) and parse_dt(r["endAt"]) >= WEEK_START
+]
+_ai_risk = [
+    {"swimlane": r["swimlane"], "title": r["title"],
+     "isStale": r["isStale"], "staleDays": r["staleDays"] or 0,
+     "isOverdue": r["isOverdue"], "isDueSoon": r["isDueSoon"],
+     "dueAtDisplay": r["dueAtDisplay"]}
+    for r in card_records
+    if r["list"] not in _risk_exclude_set
+    and not r["archived"]
+    and (r["isStale"] or r["isOverdue"] or r["isDueSoon"])
+]
+_ai_doing = [
+    {"swimlane": r["swimlane"], "title": r["title"],
+     "members": r["members"], "isStale": r["isStale"], "staleDays": r["staleDays"] or 0}
+    for r in card_records
+    if r["isDoing"] and not r["archived"]
+]
+AI_NEW_JSON   = json.dumps(_ai_new,   ensure_ascii=False)
+AI_DONE_JSON  = json.dumps(_ai_done,  ensure_ascii=False)
+AI_RISK_JSON  = json.dumps(_ai_risk,  ensure_ascii=False)
+AI_DOING_JSON = json.dumps(_ai_doing, ensure_ascii=False)
 
 # ── 每週完成趨勢（近 12 週）────────────────────────────
 weekly_trend = []
@@ -661,6 +711,86 @@ html = f"""<!DOCTYPE html>
         .act-group-table th {{ background: #f5f8fc; color: #555; font-size: 0.84em; padding: 6px 10px; border-bottom: 1px solid #dde6f0; text-align:left; }}
         .act-group-table td {{ padding: 6px 10px; border-bottom: 1px solid #edf1f5; }}
 
+        /* AI 分析 Tab 左右佈局 */
+        .ai-layout {{ display:flex; gap:18px; align-items:flex-start; }}
+        .ai-left {{ flex:0 0 52%; min-width:0; display:flex; flex-direction:column; }}
+        .ai-right {{ flex:1; min-width:0; display:flex; flex-direction:column; }}
+        /* 面板 header：左標題 + 右按鈕區，永遠固定顯示 */
+        .ai-panel-header {{
+            font-weight:700; font-size:0.9em; color:#1a4f7a;
+            background:#e8f2fc; border:1px solid #b8d4ef;
+            border-radius:6px 6px 0 0; padding:7px 12px;
+            display:flex; align-items:center; justify-content:space-between; gap:8px;
+            flex-shrink:0;
+        }}
+        .ai-panel-header-title {{ display:flex; align-items:center; gap:6px; }}
+        .ai-panel-header-actions {{ display:flex; align-items:center; gap:6px; flex-shrink:0; }}
+        .ai-panel-body {{
+            border:1px solid #b8d4ef; border-top:none;
+            border-radius:0 0 6px 6px; padding:12px 14px;
+            background:#fff;
+        }}
+        /* 複製按鈕（在 header 右側） */
+        #ai-copy-btn {{
+            background:var(--primary); color:white; border:none;
+            padding:5px 14px; border-radius:5px; font-size:0.82em;
+            cursor:pointer; letter-spacing:0.03em; white-space:nowrap;
+        }}
+        #ai-copy-btn:hover {{ background:#1565c0; }}
+        /* 模式切換按鈕（檢視 / 編輯） */
+        .ai-mode-btn {{
+            background:#fff; color:#1a4f7a; border:1px solid #b8d4ef;
+            padding:4px 11px; border-radius:5px; font-size:0.8em;
+            cursor:pointer; white-space:nowrap;
+        }}
+        .ai-mode-btn.active {{
+            background:#1a4f7a; color:#fff; border-color:#1a4f7a;
+        }}
+        .ai-preview-scroll {{ max-height:520px; overflow-y:auto; }}
+        .ai-section {{ background:#f8fbff; border:1px solid #ddeeff; border-radius:5px; padding:11px 13px; margin-bottom:10px; }}
+        .ai-section-title {{ font-weight:600; font-size:0.88em; color:#1a4f7a; margin-bottom:7px; }}
+        .ai-swim-group {{ margin-bottom:5px; }}
+        .ai-swim-name {{ font-size:0.8em; color:#555; font-weight:600; }}
+        .ai-card-row {{ font-size:0.84em; padding:2px 0 2px 10px; color:#333; }}
+        .ai-card-meta {{ color:#888; font-size:0.9em; }}
+        .ai-empty {{ font-size:0.82em; color:#aaa; padding:3px 0; }}
+        /* 右側編輯框 */
+        #ai-notes {{
+            width:100%; min-height:520px;
+            padding:12px; border:1px solid #b8d4ef;
+            border-radius:0 0 6px 6px; border-top:none;
+            font-size:0.88em; line-height:1.65; resize:vertical;
+            font-family:inherit; box-sizing:border-box;
+            display:block;
+        }}
+        /* 右側檢視框（Markdown 渲染） */
+        #ai-notes-view {{
+            width:100%; min-height:520px;
+            padding:14px 16px; border:1px solid #b8d4ef;
+            border-radius:0 0 6px 6px; border-top:none;
+            font-size:0.88em; line-height:1.75;
+            box-sizing:border-box; overflow-y:auto;
+            background:#fafcff; display:none;
+            color:#222;
+        }}
+        #ai-notes-view h1,#ai-notes-view h2,#ai-notes-view h3 {{
+            color:#1a4f7a; margin:10px 0 4px; font-size:1em;
+        }}
+        #ai-notes-view p {{ margin:4px 0 8px; }}
+        #ai-notes-view ul {{ margin:4px 0 8px; padding-left:20px; }}
+        #ai-notes-view strong {{ color:#1a4f7a; }}
+        #ai-notes-view hr {{ border:none; border-top:1px solid #d0e4f7; margin:10px 0; }}
+        #ai-notes-placeholder {{
+            color:#bbb; font-size:0.88em; padding:12px 16px;
+            border:1px solid #b8d4ef; border-radius:0 0 6px 6px;
+            border-top:none; min-height:520px; box-sizing:border-box;
+            background:#fafcff; display:none;
+        }}
+        @media (max-width:900px) {{
+            .ai-layout {{ flex-direction:column; }}
+            .ai-left, .ai-right {{ flex:unset; width:100%; }}
+        }}
+
         /* 風險摘要卡 */
         .risk-summary {{
             padding: 12px 16px;
@@ -926,6 +1056,7 @@ html = f"""<!DOCTYPE html>
 <div class="main-tab-bar">
     <button class="main-tab-btn active" onclick="switchMainTab('overview')">📊 總覽 & 風險管理</button>
     <button class="main-tab-btn" onclick="switchMainTab('personal')">👤 個人 & 細項追蹤</button>
+    <button class="main-tab-btn" onclick="switchMainTab('ai')">🤖 AI 分析</button>
 </div>
 
 <!-- ==================== TAB 1: 總覽 & 風險管理 ==================== -->
@@ -1363,6 +1494,68 @@ html = f"""<!DOCTYPE html>
 
 </div>
 
+<!-- ==================== TAB 3: AI 分析 ==================== -->
+<div id="main-panel-ai" class="main-panel">
+    <div style="max-width:1200px; margin:0 auto;">
+
+        <div class="ai-layout">
+
+            <!-- 左側：資料預覽，複製按鈕固定在 header -->
+            <div class="ai-left">
+                <div class="ai-panel-header">
+                    <span class="ai-panel-header-title">📋 本週看板資料摘要</span>
+                    <div class="ai-panel-header-actions">
+                        <span style="font-size:0.75em;color:#5a7fa8;font-weight:400;">複製後貼到 Claude 對話視窗</span>
+                        <button id="ai-copy-btn" onclick="copyAIData()">📋 複製資料給 AI</button>
+                    </div>
+                </div>
+                <div class="ai-panel-body" style="padding:10px 12px;">
+                    <div id="ai-preview-box" class="ai-preview-scroll"></div>
+                </div>
+            </div>
+
+            <!-- 右側：AI 分析結果，支援檢視 / 編輯切換 -->
+            <div class="ai-right">
+                <div class="ai-panel-header">
+                    <span class="ai-panel-header-title">🤖 AI 分析結果</span>
+                    <div class="ai-panel-header-actions">
+                        <button class="ai-mode-btn active" id="ai-mode-view" onclick="setAIMode('view')">👁 檢視</button>
+                        <button class="ai-mode-btn" id="ai-mode-edit" onclick="setAIMode('edit')">✏️ 編輯</button>
+                        <button id="ai-save-btn" onclick="saveAIToFile()"
+                            style="background:#2e7d32;color:white;border:none;padding:4px 12px;
+                                   border-radius:5px;font-size:0.8em;cursor:pointer;white-space:nowrap;">
+                            💾 儲存本週分析
+                        </button>
+                    </div>
+                </div>
+                <div id="ai-save-hint"
+                    style="font-size:0.75em;color:#888;padding:5px 14px 3px;
+                           border:1px solid #b8d4ef;border-top:none;background:#f9fcff;
+                           display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                    <span>📁 儲存位置：</span>
+                    <code style="font-size:0.95em;color:#1a4f7a;background:#e8f2fc;
+                                 padding:1px 6px;border-radius:3px;">{AI_SAVE_FOLDER}</code>
+                    <span style="color:#bbb;">｜檔名範例：</span>
+                    <code style="font-size:0.95em;color:#5a7fa8;background:#f0f6ff;
+                                 padding:1px 6px;border-radius:3px;">{AI_FILENAME_PREFIX}_{TODAY_STR}_HHMM.md</code>
+                    <span id="ai-save-cfg-note" style="color:#c0a000;display:none;">
+                        ⚙️ 可修改 ai_analysis_config.yaml 調整路徑與前綴
+                    </span>
+                </div>
+                <!-- 檢視模式：渲染 Markdown -->
+                <div id="ai-notes-view"></div>
+                <!-- 佔位（無內容時） -->
+                <div id="ai-notes-placeholder">將 Claude 的分析回覆貼在右側「編輯」模式中…<br><br>（內容會自動儲存在瀏覽器，下次開啟仍會保留）</div>
+                <!-- 編輯模式 -->
+                <textarea id="ai-notes" oninput="saveAINotes()"
+                    placeholder="將 Claude 的分析回覆貼在這裡…&#10;&#10;（內容會自動儲存在瀏覽器，下次開啟仍會保留）"
+                    style="display:none;"></textarea>
+            </div>
+
+        </div>
+    </div>
+</div>
+
 <script>
 const WEKAN_URL_BASE = "{WEKAN_CARD_URL_BASE}";
 const RAW = {data_json};
@@ -1383,6 +1576,14 @@ let riskSwimFilter = '';
 
 // 改動 1: Tab 2 Lazy Init
 let tab2Initialized = false;
+// Tab 3: AI 分析 Lazy Init
+let tab3Initialized = false;
+
+// AI 分析資料（Python 注入）
+const AI_NEW   = {AI_NEW_JSON};
+const AI_DONE  = {AI_DONE_JSON};
+const AI_RISK  = {AI_RISK_JSON};
+const AI_DOING = {AI_DOING_JSON};
 
 // 改動 2: 子分頁 Lazy Render
 let t1DirtyPanels = new Set(['newdone','doing','risk','all','parent']);
@@ -1549,15 +1750,249 @@ function switchMainTab(name) {{
     if (name === 'overview') {{
         document.getElementById('main-panel-overview').classList.add('active');
         btns[0].classList.add('active');
-    }} else {{
+    }} else if (name === 'personal') {{
         document.getElementById('main-panel-personal').classList.add('active');
         btns[1].classList.add('active');
-        // 改動 1: Tab 2 首次點擊時執行 applyFilters2
         if (!tab2Initialized) {{
             tab2Initialized = true;
             applyFilters2();
         }}
+    }} else if (name === 'ai') {{
+        document.getElementById('main-panel-ai').classList.add('active');
+        btns[2].classList.add('active');
+        if (!tab3Initialized) {{
+            tab3Initialized = true;
+            initAITab();
+        }}
     }}
+}}
+
+// ==================== AI 分析 Tab ====================
+
+function _groupBySwimlane(cards) {{
+    const map = {{}};
+    cards.forEach(c => {{
+        if (!map[c.swimlane]) map[c.swimlane] = [];
+        map[c.swimlane].push(c);
+    }});
+    return map;
+}}
+
+function initAITab() {{
+    renderAIPreview();
+    const saved = localStorage.getItem('ai_analysis_notes');
+    if (saved) {{
+        document.getElementById('ai-notes').value = saved;
+    }}
+    // 預設顯示「檢視」模式
+    setAIMode('view');
+}}
+
+// 簡易 Markdown → HTML 轉換（支援 ##標題、**粗體**、- 列表、--- 分隔線、段落）
+function simpleMarkdown(md) {{
+    if (!md || !md.trim()) return '';
+    let html = md
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+        .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+        .replace(/^## (.+)$/gm,  '<h2>$1</h2>')
+        .replace(/^# (.+)$/gm,   '<h1>$1</h1>')
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.+?)\*/g,    '<em>$1</em>')
+        .replace(/^---+$/gm,      '<hr>')
+        .replace(/^[-•] (.+)$/gm, '<li>$1</li>')
+        .replace(/(<li>[\s\S]*?<\/li>)/g, '<ul>$1</ul>')
+        .replace(/<\/ul>\s*<ul>/g, '')
+        .split(/\\n{{2,}}/)
+        .map(block => {{
+            if (/^<(h[123]|ul|hr|li)/.test(block.trim())) return block;
+            return `<p>${{block.replace(/\\n/g,'<br>')}}</p>`;
+        }})
+        .join('');
+    return html;
+}}
+
+let _currentAIMode = 'view';
+function setAIMode(mode) {{
+    _currentAIMode = mode;
+    const textarea  = document.getElementById('ai-notes');
+    const viewDiv   = document.getElementById('ai-notes-view');
+    const placeholder = document.getElementById('ai-notes-placeholder');
+    const btnView   = document.getElementById('ai-mode-view');
+    const btnEdit   = document.getElementById('ai-mode-edit');
+    const content   = textarea.value.trim();
+
+    btnView.classList.toggle('active', mode === 'view');
+    btnEdit.classList.toggle('active', mode === 'edit');
+
+    if (mode === 'view') {{
+        textarea.style.display  = 'none';
+        if (content) {{
+            viewDiv.innerHTML = simpleMarkdown(textarea.value);
+            viewDiv.style.display = 'block';
+            placeholder.style.display = 'none';
+        }} else {{
+            viewDiv.style.display = 'none';
+            placeholder.style.display = 'block';
+        }}
+    }} else {{
+        viewDiv.style.display    = 'none';
+        placeholder.style.display = 'none';
+        textarea.style.display   = 'block';
+        textarea.focus();
+    }}
+}}
+
+function renderAIPreview() {{
+    const box = document.getElementById('ai-preview-box');
+    if (!box) return;
+    const sections = [
+        {{ data: AI_NEW,   icon: '📥', label: '本週新增',
+           row: c => `${{c.title}}<span class="ai-card-meta">（${{c.members.join('、')||'無負責人'}}，${{c.list}}）</span>` }},
+        {{ data: AI_DONE,  icon: '✅', label: '本週完成',
+           row: c => `${{c.title}}<span class="ai-card-meta">（${{c.members.join('、')||'無負責人'}}）</span>` }},
+        {{ data: AI_RISK,  icon: '⚠️', label: '目前風險',
+           row: c => {{
+               const t = [];
+               if (c.isOverdue) t.push('逾期');
+               if (c.isDueSoon) t.push(`⚡ 即將到期：${{c.dueAtDisplay}}`);
+               if (c.isStale)   t.push(`停滯${{c.staleDays}}天`);
+               return `${{c.title}}<span class="ai-card-meta">（${{t.join('、')}}）</span>`;
+           }} }},
+        {{ data: AI_DOING, icon: '▶️', label: 'Doing 中',
+           row: c => `${{c.title}}<span class="ai-card-meta">（${{c.members.join('、')||'無負責人'}}，${{c.isStale?`停滯${{c.staleDays}}天`:'活躍'}}）</span>` }},
+    ];
+    let html = '';
+    sections.forEach(s => {{
+        const groups = _groupBySwimlane(s.data);
+        html += `<div class="ai-section"><div class="ai-section-title">${{s.icon}} ${{s.label}}（${{s.data.length}} 張）</div>`;
+        if (s.data.length === 0) {{
+            html += `<div class="ai-empty">無資料</div>`;
+        }} else {{
+            Object.entries(groups).forEach(([swim, cards]) => {{
+                html += `<div class="ai-swim-group"><span class="ai-swim-name">主題：${{swim}}</span>`;
+                cards.forEach(c => {{ html += `<div class="ai-card-row">• ${{s.row(c)}}</div>`; }});
+                html += `</div>`;
+            }});
+        }}
+        html += `</div>`;
+    }});
+    box.innerHTML = html;
+}}
+
+function buildAICopyText() {{
+    const fmt = (cards, rowFn) => {{
+        if (cards.length === 0) return '  （無）\\n';
+        const groups = _groupBySwimlane(cards);
+        let s = '';
+        Object.entries(groups).forEach(([swim, items]) => {{
+            s += `主題：${{swim}}\n`;
+            items.forEach(c => {{ s += `  - ${{rowFn(c)}}\n`; }});
+        }});
+        return s;
+    }};
+    return [
+        `【本週新增 ${{AI_NEW.length}} 張】`,
+        fmt(AI_NEW,   c => `${{c.title}}（負責人：${{c.members.join('、')||'無'}}，欄位：${{c.list}}）`),
+        `【本週完成 ${{AI_DONE.length}} 張】`,
+        fmt(AI_DONE,  c => `${{c.title}}（負責人：${{c.members.join('、')||'無'}}）`),
+        `【目前風險 ${{AI_RISK.length}} 張】`,
+        fmt(AI_RISK,  c => {{
+            const t = [];
+            if (c.isOverdue) t.push('逾期');
+            if (c.isDueSoon) t.push(`⚡ 即將到期：${{c.dueAtDisplay}}`);
+            if (c.isStale)   t.push(`停滯${{c.staleDays}}天`);
+            return `${{c.title}}（${{t.join('、')}}）`;
+        }}),
+        `【Doing 中 ${{AI_DOING.length}} 張】`,
+        fmt(AI_DOING, c => `${{c.title}}（負責人：${{c.members.join('、')||'無'}}，${{c.isStale?`停滯${{c.staleDays}}天`:'活躍'}}）`),
+        '---',
+        '請根據以上資料：',
+        '1. 總結本週團隊推展的主要方向',
+        '2. 說明完成任務的意義與進展',
+        '3. 結合風險現況，建議下週應優先推進的方向',
+    ].join('\\n');
+}}
+
+function copyAIData() {{
+    navigator.clipboard.writeText(buildAICopyText()).then(() => {{
+        const btn = document.getElementById('ai-copy-btn');
+        btn.textContent = '✅ 已複製！';
+        setTimeout(() => {{ btn.textContent = '📋 複製 AI 分析資料'; }}, 1500);
+    }});
+}}
+
+// 從 Python 注入的設定
+const AI_SAVE_FOLDER    = "{AI_SAVE_FOLDER}";
+const AI_FILENAME_PREFIX = "{AI_FILENAME_PREFIX}";
+
+function _buildAISaveFilename() {{
+    const now = new Date();
+    const pad = n => String(n).padStart(2,'0');
+    const dateStr = `${{now.getFullYear()}}${{pad(now.getMonth()+1)}}${{pad(now.getDate())}}`;
+    const timeStr = `${{pad(now.getHours())}}${{pad(now.getMinutes())}}`;
+    return `${{AI_FILENAME_PREFIX}}_${{dateStr}}_${{timeStr}}.md`;
+}}
+
+function _buildAISaveContent(filename) {{
+    const raw = document.getElementById('ai-notes').value;
+    // 從檔名解析日期時間顯示
+    const m = filename.match(/_(\d{{4}})(\d{{2}})(\d{{2}})_(\d{{2}})(\d{{2}})/);
+    const stamp = m ? `${{m[1]}}-${{m[2]}}-${{m[3]}} ${{m[4]}}:${{m[5]}}` : '';
+    return `# AI 週報分析  ${{stamp}}\\n\\n${{raw}}`;
+}}
+
+async function saveAIToFile() {{
+    const content = document.getElementById('ai-notes').value.trim();
+    if (!content) {{
+        alert('尚無分析內容，請先切換到「✏️ 編輯」模式，貼入 AI 分析結果後再儲存。');
+        return;
+    }}
+
+    const btn      = document.getElementById('ai-save-btn');
+    const filename = _buildAISaveFilename();
+    const text     = _buildAISaveContent(filename);
+
+    // 優先使用 File System Access API（Chrome/Edge 支援，會開啟原生另存視窗）
+    if (window.showSaveFilePicker) {{
+        try {{
+            const handle = await window.showSaveFilePicker({{
+                suggestedName: filename,
+                types: [{{ description: 'Markdown 檔案', accept: {{ 'text/markdown': ['.md'] }} }}]
+            }});
+            const writable = await handle.createWritable();
+            await writable.write(text);
+            await writable.close();
+            btn.textContent = '✅ 已儲存！';
+            setTimeout(() => {{ btn.textContent = '💾 儲存本週分析'; }}, 2000);
+            return;
+        }} catch(e) {{
+            if (e.name === 'AbortError') return; // 使用者取消，不做任何事
+            // 其他錯誤則 fallback 到 Blob 下載
+        }}
+    }}
+
+    // Fallback：Blob 下載（Firefox / Safari / 舊版瀏覽器）
+    const blob = new Blob([text], {{ type: 'text/markdown;charset=utf-8' }});
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    btn.textContent = '✅ 已下載！';
+    setTimeout(() => {{ btn.textContent = '💾 儲存本週分析'; }}, 2000);
+}}
+
+let _aiNoteTimer = null;
+function saveAINotes() {{
+    clearTimeout(_aiNoteTimer);
+    _aiNoteTimer = setTimeout(() => {{
+        const val = document.getElementById('ai-notes').value;
+        localStorage.setItem('ai_analysis_notes', val);
+        // 若切換到檢視模式時即時更新
+        if (_currentAIMode === 'view') setAIMode('view');
+    }}, 500);
 }}
 
 // ==================== Sub-Tab Switch ====================
