@@ -708,10 +708,10 @@ html = f"""<!DOCTYPE html>
         .nd-cmp-row-head {{
             display:flex; align-items:center; gap:6px;
             background:#eaf3fb; padding:5px 10px;
-            cursor:grab; user-select:none;
+            cursor:pointer; user-select:none;
         }}
-        .nd-cmp-row-head:active {{ cursor:grabbing; }}
-        .nd-cmp-drag-handle {{ color:#bbb; font-size:1em; flex-shrink:0; }}
+        .nd-cmp-drag-handle {{ color:#bbb; font-size:1em; flex-shrink:0; cursor:grab; }}
+        .nd-cmp-drag-handle:active {{ cursor:grabbing; }}
         .nd-cmp-swim-name {{ font-size:0.82em; font-weight:700; color:#1a4f7a; }}
         .nd-cmp-pipe-badges {{ display:flex; gap:4px; align-items:center; flex-shrink:0; }}
         .nd-cmp-pipe-badge {{ font-size:0.73em; padding:1px 7px; border-radius:10px; font-weight:600; white-space:nowrap; border:1px solid transparent; }}
@@ -719,6 +719,17 @@ html = f"""<!DOCTYPE html>
         .nd-cmp-pipe-badge.waiting {{ background:#fff3e0; color:#e65100; border-color:#ffcc80; }}
         .nd-cmp-pipe-badge.review  {{ background:#f3e5f5; color:#6a1b9a; border-color:#ce93d8; }}
         .nd-cmp-pipe-badge.zero    {{ opacity:0.28; }}
+        .nd-cmp-expand-arrow {{ margin-left:auto; color:#888; font-size:0.78em; flex-shrink:0; transition:transform 0.15s; }}
+        /* Pipeline 展開區 */
+        .nd-cmp-pipeline {{ background:#f6faff; border-top:1px solid #d8eaf8; border-bottom:1px solid #d8eaf8; }}
+        .nd-cmp-pipe-cols {{ display:flex; }}
+        .nd-cmp-pipe-col {{ flex:1; min-width:0; padding:6px 10px; border-right:1px solid #e4eff9; }}
+        .nd-cmp-pipe-col:last-child {{ border-right:none; }}
+        .nd-cmp-pipe-col-hdr {{ font-size:0.78em; font-weight:700; padding:3px 0 5px; margin-bottom:4px; border-bottom:1px solid #e4eff9; }}
+        .nd-cmp-pipe-col-hdr.doing-hdr   {{ color:#1565c0; }}
+        .nd-cmp-pipe-col-hdr.waiting-hdr {{ color:#e65100; }}
+        .nd-cmp-pipe-col-hdr.review-hdr  {{ color:#6a1b9a; }}
+        /* 完成/新增區 */
         .nd-cmp-row-body {{ display:flex; }}
         .nd-cmp-cell {{ flex:1; min-width:0; padding:6px 8px; border-right:1px solid #e4eff9; }}
         .nd-cmp-cell:last-child {{ border-right:none; }}
@@ -2259,6 +2270,17 @@ function _ndDrop(e, tabN) {{
 
 // ─────────────────────────────────────────────────────────
 
+function toggleNDPipeline(headEl) {{
+    const row = headEl.closest('.nd-cmp-row');
+    if (!row) return;
+    const pipeline = row.querySelector('.nd-cmp-pipeline');
+    const arrow    = headEl.querySelector('.nd-cmp-expand-arrow');
+    if (!pipeline) return;
+    const isOpen = pipeline.style.display !== 'none';
+    pipeline.style.display = isOpen ? 'none' : '';
+    if (arrow) arrow.textContent = isOpen ? '▶' : '▼';
+}}
+
 function _renderNDCompareIfNeeded(tabN) {{
     if (!_ndCmpDirty[tabN]) return;
     _ndCmpDirty[tabN] = false;
@@ -2311,17 +2333,25 @@ function _buildNDCompareHTML(newCards, doneCards, tabN, allCards) {{
         return `<div class="nd-cmp-card">${{cardLink(c.id, c.title)}}<span class="nd-cmp-card-member">（${{members}}）</span></div>`;
     }};
 
-    // 組合逐列 HTML
-    // Pipeline 計數用（allCards = 篩選後全部卡片，不限日期）
+    // Pipeline 卡片清單（allCards = 篩選後全部卡片，不限日期）
     const pipeBySwim = {{}};
     if (allCards) {{
         allCards.forEach(c => {{
-            if (!pipeBySwim[c.swimlane]) pipeBySwim[c.swimlane] = {{ doing:0, waiting:0, review:0 }};
-            if (c.isDoing)   pipeBySwim[c.swimlane].doing++;
-            if (c.isWaiting) pipeBySwim[c.swimlane].waiting++;
-            if (c.isReview)  pipeBySwim[c.swimlane].review++;
+            if (!pipeBySwim[c.swimlane]) pipeBySwim[c.swimlane] = {{ doing:[], waiting:[], review:[] }};
+            if (c.isDoing)   pipeBySwim[c.swimlane].doing.push(c);
+            if (c.isWaiting) pipeBySwim[c.swimlane].waiting.push(c);
+            if (c.isReview)  pipeBySwim[c.swimlane].review.push(c);
         }});
     }}
+
+    // Pipeline 欄 HTML helper
+    const pipeColHTML = (cards, type) => {{
+        const hdrClass = type === 'doing' ? 'doing-hdr' : type === 'waiting' ? 'waiting-hdr' : 'review-hdr';
+        const icon     = type === 'doing' ? '🔄'        : type === 'waiting' ? '⏳'           : '👁';
+        const label    = type === 'doing' ? 'Doing'     : type === 'waiting' ? 'Waiting'      : 'Review';
+        const hdr = `<div class="nd-cmp-pipe-col-hdr ${{hdrClass}}">${{icon}} ${{label}} (${{cards.length}})</div>`;
+        return hdr + (cards.length ? cards.map(cardRow).join('') : '<div class="nd-cmp-empty">無</div>');
+    }};
 
     let rowsHtml = '';
     swims.forEach(swim => {{
@@ -2330,12 +2360,22 @@ function _buildNDCompareHTML(newCards, doneCards, tabN, allCards) {{
         const newCellHTML  = nc.length ? nc.map(cardRow).join('') : '<div class="nd-cmp-empty">本週無新增</div>';
         const doneCellHTML = dc.length ? dc.map(cardRow).join('') : '<div class="nd-cmp-empty">本週無完成</div>';
 
-        // Pipeline badge（依現況統計，非日期篩選）
-        const pipe = pipeBySwim[swim] || {{ doing:0, waiting:0, review:0 }};
+        // Pipeline badge（數字）
+        const pipe = pipeBySwim[swim] || {{ doing:[], waiting:[], review:[] }};
+        const dN = pipe.doing.length, wN = pipe.waiting.length, rN = pipe.review.length;
         const badgeHtml = `<div class="nd-cmp-pipe-badges">
-            <span class="nd-cmp-pipe-badge doing${{pipe.doing===0?' zero':''}}">Doing ${{pipe.doing}}</span>
-            <span class="nd-cmp-pipe-badge waiting${{pipe.waiting===0?' zero':''}}">Waiting ${{pipe.waiting}}</span>
-            <span class="nd-cmp-pipe-badge review${{pipe.review===0?' zero':''}}">Review ${{pipe.review}}</span>
+            <span class="nd-cmp-pipe-badge doing${{dN===0?' zero':''}}">Doing ${{dN}}</span>
+            <span class="nd-cmp-pipe-badge waiting${{wN===0?' zero':''}}">Waiting ${{wN}}</span>
+            <span class="nd-cmp-pipe-badge review${{rN===0?' zero':''}}">Review ${{rN}}</span>
+        </div>`;
+
+        // Pipeline 展開區（預設隱藏）
+        const pipelineHTML = `<div class="nd-cmp-pipeline" style="display:none">
+            <div class="nd-cmp-pipe-cols">
+                <div class="nd-cmp-pipe-col">${{pipeColHTML(pipe.doing,   'doing'  )}}</div>
+                <div class="nd-cmp-pipe-col">${{pipeColHTML(pipe.waiting, 'waiting')}}</div>
+                <div class="nd-cmp-pipe-col">${{pipeColHTML(pipe.review,  'review' )}}</div>
+            </div>
         </div>`;
 
         rowsHtml += `<div class="nd-cmp-row" data-swim="${{swim}}" draggable="true"
@@ -2344,11 +2384,13 @@ function _buildNDCompareHTML(newCards, doneCards, tabN, allCards) {{
             ondragover="_ndDragOver(event)"
             ondragleave="_ndDragLeave(event)"
             ondrop="_ndDrop(event,${{tabN}})">
-            <div class="nd-cmp-row-head">
-                <span class="nd-cmp-drag-handle">⠿</span>
+            <div class="nd-cmp-row-head" onclick="toggleNDPipeline(this)">
+                <span class="nd-cmp-drag-handle" ondragstart="event.stopPropagation()" onclick="event.stopPropagation()">⠿</span>
                 <span class="nd-cmp-swim-name">${{swim}}</span>
                 ${{badgeHtml}}
+                <span class="nd-cmp-expand-arrow">▶</span>
             </div>
+            ${{pipelineHTML}}
             <div class="nd-cmp-row-body">
                 <div class="nd-cmp-cell">${{doneCellHTML}}</div>
                 <div class="nd-cmp-cell">${{newCellHTML}}</div>
