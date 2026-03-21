@@ -1156,12 +1156,7 @@ html = f"""<!DOCTYPE html>
 
     <!-- 需求 #3: 全部明細扁平 -->
     <div id="t1-panel-all" class="sub-panel">
-        <div style="margin-bottom:12px;">
-            <label>依泳道篩選：</label>
-            <select id="t1-all-swim-filter" onchange="applyAllSwimFilter('t1')" style="padding:6px; border:1px solid var(--border); border-radius:4px;">
-                <option value="">全部泳道</option>
-            </select>
-        </div>
+        <div style="font-size:0.78em; color:#888; margin-bottom:8px;">＊資料範圍：依左側篩選器條件顯示（日期、流程欄位、主題、標籤、狀態等）</div>
         <div class="table-wrapper" style="max-height:70vh;overflow-y:auto;border:1px solid #e0e0e0;border-radius:4px;">
             <table id="t1-all-table">
                 <thead>
@@ -1505,7 +1500,6 @@ function initFilters() {{
         .join('');
     document.getElementById('t1-risk-swim-filter').innerHTML = '<option value="">全部泳道</option>' + swimOptions;
     document.getElementById('t1-parent-swim-filter').innerHTML = '<option value="">全部泳道</option>' + swimOptions;
-    document.getElementById('t1-all-swim-filter').innerHTML = '<option value="">全部泳道</option>' + swimOptions;
     const t2ParentSwimEl = document.getElementById('t2-parent-swim-filter');
     if (t2ParentSwimEl) t2ParentSwimEl.innerHTML = '<option value="">全部泳道</option>' + swimOptions;
 
@@ -1867,33 +1861,6 @@ function applyRiskSwimFilter() {{
     updateRiskTables(filteredCards1);
 }}
 
-// 全部明細泳道篩選
-function applyAllSwimFilter(tabName) {{
-    const swimId = document.getElementById(`${{tabName}}-all-swim-filter`).value;
-    const cards = tabName === 't1' ? filteredCards1 : filteredCards2;
-    const filtered = swimId ? cards.filter(c => c.swimlaneId === swimId) : cards;
-    const tableId = `${{tabName}}-all-table`;
-    const tbody = document.getElementById(tableId).querySelector('tbody');
-    const sortedAll = sortBySwim(filtered);
-    let html = '';
-    sortedAll.forEach(c => {{
-        const staleBadge = c.isStale
-            ? `<span class="badge badge-stale">停滯${{c.staleDays}}天</span>`
-            : '<span class="badge" style="background:#e8f5e9;color:#2e7d32;">活躍</span>';
-        const clProgress = c.hasChecklist ? `${{c.clDone}}/${{c.clTotal}} (${{c.clPct}}%)` : '-';
-        html += `<tr>
-            <td>${{cardLink(c.id, c.title)}}</td>
-            <td>${{c.swimlane}}</td>
-            <td>${{c.members.join(', ') || '無'}}</td>
-            <td>${{c.createdAt.split('T')[0]}}</td>
-            <td>${{c.dateLastActivity.split('T')[0] || '-'}}</td>
-            <td>${{staleBadge}}</td>
-            <td>${{clProgress}}</td>
-            <td>${{c.labels.join(', ') || '-'}}</td>
-        </tr>`;
-    }});
-    tbody.innerHTML = html;
-}}
 
 // 需求 #3: 父子結構泳道篩選
 function applyParentSwimFilter(tabName) {{
