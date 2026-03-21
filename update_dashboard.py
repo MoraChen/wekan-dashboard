@@ -886,6 +886,17 @@ html = f"""<!DOCTYPE html>
             opacity: 1;
         }}
 
+        .card-link {{
+            font-weight: 500;
+            color: inherit;
+            text-decoration: none;
+        }}
+        .card-link:hover {{
+            color: #1a4f7a;
+            text-decoration: underline;
+            text-underline-offset: 2px;
+        }}
+
         .focus-section {{
             background: white;
             border: 1px solid var(--border);
@@ -2783,7 +2794,7 @@ function cardLink(id, title) {{
     if (!WEKAN_URL_BASE) {{
         return `<span style="font-weight:500">${{title}}</span>`;
     }}
-    return `<span style="font-weight:500">${{title}}<a href="${{WEKAN_URL_BASE}}/${{id}}" target="_blank" class="card-link-icon" onclick="event.stopPropagation()">🔗</a></span>`;
+    return `<a href="${{WEKAN_URL_BASE}}/${{id}}" target="_blank" class="card-link" onclick="event.stopPropagation()">${{title}}</a>`;
 }}
 
 // 改動 B4: updateTabBadges1 和 updateTabBadges2
