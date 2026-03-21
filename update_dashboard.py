@@ -695,6 +695,32 @@ html = f"""<!DOCTYPE html>
         /* 主題交替底色（方案 A：依 SWIM_ORDER 奇偶） */
         .row-alt-bg {{ background-color: #e8f4fd !important; }}
 
+        /* 📊 主題對照 逐列式（同主題同高 + 拖曳排序） */
+        .nd-cmp-table {{ border:1px solid #d0e4f5; border-radius:6px; overflow:hidden; }}
+        .nd-cmp-hdr-row {{ display:flex; background:#f0f6fc; border-bottom:2px solid #c2d8ef; }}
+        .nd-cmp-hdr-drag {{ width:28px; flex-shrink:0; }}
+        .nd-cmp-hdr-cell {{ flex:1; padding:8px 14px; font-weight:700; font-size:0.88em; color:#fff; text-align:center; }}
+        .nd-cmp-hdr-cell.new-hdr  {{ background:#1a73b5; }}
+        .nd-cmp-hdr-cell.done-hdr {{ background:#2e7d32; }}
+        .nd-cmp-row {{ border-bottom:1px solid #e4eff9; transition:background 0.12s; }}
+        .nd-cmp-row:last-child {{ border-bottom:none; }}
+        .nd-cmp-row.drag-over {{ background:#ddeeff; outline:2px dashed #1a73b5; outline-offset:-2px; }}
+        .nd-cmp-row-head {{
+            display:flex; align-items:center; gap:6px;
+            background:#eaf3fb; padding:5px 10px;
+            cursor:grab; user-select:none;
+        }}
+        .nd-cmp-row-head:active {{ cursor:grabbing; }}
+        .nd-cmp-drag-handle {{ color:#bbb; font-size:1em; flex-shrink:0; }}
+        .nd-cmp-swim-name {{ font-size:0.82em; font-weight:700; color:#1a4f7a; }}
+        .nd-cmp-row-body {{ display:flex; }}
+        .nd-cmp-cell {{ flex:1; min-width:0; padding:6px 8px; border-right:1px solid #e4eff9; }}
+        .nd-cmp-cell:last-child {{ border-right:none; }}
+        .nd-cmp-card {{ font-size:0.84em; padding:3px 4px; color:#333; border-bottom:1px solid #f0f5fa; }}
+        .nd-cmp-card:last-child {{ border-bottom:none; }}
+        .nd-cmp-card-member {{ color:#888; font-size:0.9em; }}
+        .nd-cmp-empty {{ font-size:0.82em; color:#ccc; font-style:italic; padding:4px 4px; }}
+
         /* 本週有異動 欄位分群（可折疊卡片） */
         .act-group-card {{ border: 1px solid #cce0f5; border-radius: 6px; margin-bottom: 8px; overflow: hidden; }}
         .act-group-hdr {{
@@ -1259,6 +1285,9 @@ html = f"""<!DOCTYPE html>
             <button class="mini-tab-btn" id="t1-nd-btn-activity" onclick="switchNewDone('t1','activity')">
                 本週有異動 <span class="info-tip" data-tip="過去 7 天內 dateLastActivity 有更新的卡片（排除 DONE / Closed / Backlog / Goal＆專案資訊）">ℹ️</span><span class="mini-badge" id="t1-nd-badge-activity">0</span>
             </button>
+            <button class="mini-tab-btn" id="t1-nd-btn-compare" onclick="switchNewDone('t1','compare')">
+                📊 主題對照
+            </button>
         </div>
         <div id="t1-nd-new">
             <div style="overflow-x:auto">
@@ -1282,6 +1311,9 @@ html = f"""<!DOCTYPE html>
         </div>
         <div id="t1-nd-activity" style="display:none">
             <div id="t1-nd-act-wrap" style="padding:4px 0"></div>
+        </div>
+        <div id="t1-nd-compare" style="display:none">
+            <div id="t1-nd-cmp-wrap"></div>
         </div>
     </div>
 
@@ -1438,6 +1470,9 @@ html = f"""<!DOCTYPE html>
             <button class="mini-tab-btn" id="t2-nd-btn-activity" onclick="switchNewDone('t2','activity')">
                 本週有異動 <span class="info-tip" data-tip="過去 7 天內 dateLastActivity 有更新的卡片（排除 DONE / Closed / Backlog / Goal＆專案資訊）">ℹ️</span><span class="mini-badge" id="t2-nd-badge-activity">0</span>
             </button>
+            <button class="mini-tab-btn" id="t2-nd-btn-compare" onclick="switchNewDone('t2','compare')">
+                📊 主題對照
+            </button>
         </div>
         <div id="t2-nd-new">
             <div style="overflow-x:auto">
@@ -1461,6 +1496,9 @@ html = f"""<!DOCTYPE html>
         </div>
         <div id="t2-nd-activity" style="display:none">
             <div id="t2-nd-act-wrap" style="padding:4px 0"></div>
+        </div>
+        <div id="t2-nd-compare" style="display:none">
+            <div id="t2-nd-cmp-wrap"></div>
         </div>
     </div>
 
@@ -2137,12 +2175,169 @@ function toggleGroup(el, groupKey, parentId) {{
 
 // 改動 A4: switchNewDone 函式
 function switchNewDone(tab, name) {{
-    ['new','done','activity'].forEach(n => {{
+    ['new','done','activity','compare'].forEach(n => {{
         const panel = document.getElementById(tab + '-nd-' + n);
         const btn = document.getElementById(tab + '-nd-btn-' + n);
         if (panel) panel.style.display = n === name ? '' : 'none';
         if (btn) btn.classList.toggle('active', n === name);
     }});
+    // 主題對照：lazy render
+    if (name === 'compare') {{
+        const tabN = tab === 't1' ? 1 : 2;
+        _renderNDCompareIfNeeded(tabN);
+    }}
+}}
+
+// 主題對照 lazy render flag + 排序覆寫（localStorage 持久化）
+let _ndCmpDirty = {{ 1: true, 2: true }};
+let _ndCmpOrderOverride = (function() {{
+    try {{ return JSON.parse(localStorage.getItem('ndCmpSwimOrder') || 'null'); }}
+    catch(e) {{ return null; }}
+}})();
+
+// ── Drag & Drop handlers ──────────────────────────────────
+let _ndDragSrcRow = null;
+
+function _ndDragStart(e) {{
+    _ndDragSrcRow = e.currentTarget;
+    e.dataTransfer.effectAllowed = 'move';
+    setTimeout(() => {{ if (_ndDragSrcRow) _ndDragSrcRow.style.opacity = '0.4'; }}, 0);
+}}
+
+function _ndDragEnd(e) {{
+    e.currentTarget.style.opacity = '';
+    document.querySelectorAll('.nd-cmp-row').forEach(r => r.classList.remove('drag-over'));
+    _ndDragSrcRow = null;
+}}
+
+function _ndDragOver(e) {{
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (_ndDragSrcRow && e.currentTarget !== _ndDragSrcRow) {{
+        document.querySelectorAll('.nd-cmp-row').forEach(r => r.classList.remove('drag-over'));
+        e.currentTarget.classList.add('drag-over');
+    }}
+}}
+
+function _ndDragLeave(e) {{
+    e.currentTarget.classList.remove('drag-over');
+}}
+
+function _ndDrop(e, tabN) {{
+    e.preventDefault();
+    const tgt = e.currentTarget;
+    tgt.classList.remove('drag-over');
+    if (!_ndDragSrcRow || _ndDragSrcRow === tgt) return;
+
+    // 讀取目前所有列的主題順序
+    const container = _ndDragSrcRow.closest('.nd-cmp-table');
+    if (!container) return;
+    const rows = Array.from(container.querySelectorAll('.nd-cmp-row[data-swim]'));
+    const swims = rows.map(r => r.dataset.swim);
+
+    const srcIdx = rows.indexOf(_ndDragSrcRow);
+    const tgtIdx = rows.indexOf(tgt);
+    if (srcIdx < 0 || tgtIdx < 0) return;
+
+    // 移動
+    swims.splice(tgtIdx, 0, swims.splice(srcIdx, 1)[0]);
+
+    // 儲存並重繪
+    _ndCmpOrderOverride = swims;
+    try {{ localStorage.setItem('ndCmpSwimOrder', JSON.stringify(swims)); }} catch(ex) {{}}
+
+    _ndCmpDirty[1] = true;
+    _ndCmpDirty[2] = true;
+    _renderNDCompareIfNeeded(tabN);
+}}
+
+// ─────────────────────────────────────────────────────────
+
+function _renderNDCompareIfNeeded(tabN) {{
+    if (!_ndCmpDirty[tabN]) return;
+    _ndCmpDirty[tabN] = false;
+    const cards = tabN === 1 ? filteredCards1 : filteredCards2;
+    const dates  = tabN === 1 ? t1FilterDates  : t2FilterDates;
+    if (!cards || !dates.startDt) return;
+    const {{ startDt, endDt }} = dates;
+
+    const newCards = cards.filter(c => {{
+        const ct = c.createdAt ? new Date(c.createdAt) : null;
+        return ct && ct >= startDt && ct <= endDt && !c.archived;
+    }});
+    const doneCards = cards.filter(c => {{
+        const et = c.endAt ? new Date(c.endAt) : null;
+        return c.isDone && et && et >= startDt && et <= endDt;
+    }});
+
+    const wrap = document.getElementById('t' + tabN + '-nd-cmp-wrap');
+    if (wrap) wrap.innerHTML = _buildNDCompareHTML(newCards, doneCards, tabN);
+}}
+
+function _buildNDCompareHTML(newCards, doneCards, tabN) {{
+    // 取兩側主題聯集
+    const swimSet = new Set([...newCards.map(c => c.swimlane), ...doneCards.map(c => c.swimlane)]);
+    let swims = Array.from(swimSet);
+
+    // 排序：localStorage 覆寫 > SWIM_ORDER > 字母
+    if (_ndCmpOrderOverride && _ndCmpOrderOverride.length > 0) {{
+        const ordered = [];
+        _ndCmpOrderOverride.forEach(s => {{ if (swims.includes(s)) ordered.push(s); }});
+        swims.forEach(s => {{ if (!ordered.includes(s)) ordered.push(s); }});
+        swims = ordered;
+    }} else if (SWIM_ORDER.length > 0) {{
+        swims.sort((a, b) => {{
+            const ia = SWIM_ORDER.indexOf(a), ib = SWIM_ORDER.indexOf(b);
+            return (ia < 0 ? 9999 : ia) - (ib < 0 ? 9999 : ib);
+        }});
+    }} else {{
+        swims.sort();
+    }}
+
+    // 依主題分組
+    const bySwimNew  = {{}};
+    const bySwimDone = {{}};
+    newCards.forEach(c  => {{ (bySwimNew[c.swimlane]  = bySwimNew[c.swimlane]  || []).push(c); }});
+    doneCards.forEach(c => {{ (bySwimDone[c.swimlane] = bySwimDone[c.swimlane] || []).push(c); }});
+
+    const cardRow = c => {{
+        const members = c.members && c.members.length ? c.members.join('、') : '無負責人';
+        return `<div class="nd-cmp-card">${{cardLink(c.id, c.title)}}<span class="nd-cmp-card-member">（${{members}}）</span></div>`;
+    }};
+
+    // 組合逐列 HTML
+    let rowsHtml = '';
+    swims.forEach(swim => {{
+        const nc = bySwimNew[swim]  || [];
+        const dc = bySwimDone[swim] || [];
+        const newCellHTML  = nc.length ? nc.map(cardRow).join('') : '<div class="nd-cmp-empty">本週無新增</div>';
+        const doneCellHTML = dc.length ? dc.map(cardRow).join('') : '<div class="nd-cmp-empty">本週無完成</div>';
+        rowsHtml += `<div class="nd-cmp-row" data-swim="${{swim}}" draggable="true"
+            ondragstart="_ndDragStart(event)"
+            ondragend="_ndDragEnd(event)"
+            ondragover="_ndDragOver(event)"
+            ondragleave="_ndDragLeave(event)"
+            ondrop="_ndDrop(event,${{tabN}})">
+            <div class="nd-cmp-row-head">
+                <span class="nd-cmp-drag-handle">⠿</span>
+                <span class="nd-cmp-swim-name">${{swim}}</span>
+            </div>
+            <div class="nd-cmp-row-body">
+                <div class="nd-cmp-cell">${{doneCellHTML}}</div>
+                <div class="nd-cmp-cell">${{newCellHTML}}</div>
+            </div>
+        </div>`;
+    }});
+    if (!rowsHtml) rowsHtml = '<div style="padding:12px;color:#aaa;font-style:italic;text-align:center;">本期無資料</div>';
+
+    return `<div class="nd-cmp-table">
+        <div class="nd-cmp-hdr-row">
+            <div class="nd-cmp-hdr-drag"></div>
+            <div class="nd-cmp-hdr-cell done-hdr">✅ 本週完成（${{doneCards.length}} 張）</div>
+            <div class="nd-cmp-hdr-cell new-hdr">📥 本週新增（${{newCards.length}} 張）</div>
+        </div>
+        ${{rowsHtml}}
+    </div>`;
 }}
 
 // 改動 C5: switchTab1 - 只對 lazy 的分頁呼叫 renderT1Panel
@@ -2407,6 +2602,7 @@ function applyFilters1() {{
 
     // 改動 C1: 輕量子分頁即時渲染（Method Y）
     t1FilterDates = {{ startDt, endDt }};
+    _ndCmpDirty[1] = true;
     renderNewDone1(filteredCards1, startDt, endDt);
     renderDoing1(filteredCards1);
     updateRiskTables(filteredCards1);
@@ -2501,6 +2697,7 @@ function applyFilters2() {{
 
     // 改動 C2: 輕量子分頁即時渲染（Method Y）
     t2FilterDates = {{ startDt, endDt }};
+    _ndCmpDirty[2] = true;
     renderNewDone2(filteredCards2, startDt, endDt);
     updateTabBadges2(filteredCards2, startDt, endDt);
     t2DirtyPanels = new Set(['all', 'parent']);
