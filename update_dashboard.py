@@ -1009,7 +1009,7 @@ html = f"""<!DOCTYPE html>
         <div id="risk-summary-box"></div>
         <div class="sub-tab-bar" style="margin-top:0; margin-bottom:15px; border-bottom:1px solid var(--border);">
             <button class="sub-tab-btn active" onclick="switchRiskSubTab('overview')">總覽風險</button>
-            <button class="sub-tab-btn" onclick="switchRiskSubTab('swim')">泳道篩選</button>
+            <button class="sub-tab-btn" onclick="switchRiskSubTab('swim')">主題篩選</button>
             <button class="sub-tab-btn" id="risk-subtab-btn-newrisk" onclick="switchRiskSubTab('newrisk')">🆕 本週新風險</button>
             <button class="sub-tab-btn" onclick="switchRiskSubTab('duesoon')">⚡ 即將到期</button>
         </div>
@@ -1020,7 +1020,7 @@ html = f"""<!DOCTYPE html>
                 <table id="t1-risk-overview-table">
                     <thead>
                         <tr>
-                            <th>專案</th>
+                            <th>主題</th>
                             <th>卡片名稱</th>
                             <th>預計完成日</th>
                             <th>停滯天數 <span class="info-tip" data-tip="停滯定義：卡片在 Pipeline（Doing / Waiting / Review）中，超過 14 天無任何活動（以最後活動日計算）">ℹ️</span></th>
@@ -1038,16 +1038,16 @@ html = f"""<!DOCTYPE html>
 
         <div id="risk-subpanel-swim" class="sub-panel">
             <div style="margin-bottom: 15px;">
-                <label>依泳道篩選：</label>
+                <label>依主題篩選：</label>
                 <select id="t1-risk-swim-filter" onchange="applyRiskSwimFilter()" style="padding:6px; border:1px solid var(--border); border-radius:4px;">
-                    <option value="">全部泳道</option>
+                    <option value="">全部主題</option>
                 </select>
             </div>
             <div class="table-wrapper">
                 <table id="t1-risk-swim-table">
                     <thead>
                         <tr>
-                            <th>專案</th>
+                            <th>主題</th>
                             <th>卡片名稱</th>
                             <th>預計完成日</th>
                             <th>停滯天數 <span class="info-tip" data-tip="停滯定義：卡片在 Pipeline（Doing / Waiting / Review）中，超過 14 天無任何活動（以最後活動日計算）">ℹ️</span></th>
@@ -1068,7 +1068,7 @@ html = f"""<!DOCTYPE html>
             <div class="table-wrapper">
                 <table id="t1-risk-newrisk-table">
                     <thead><tr>
-                        <th>專案</th><th>卡片名稱</th><th>預計完成日</th>
+                        <th>主題</th><th>卡片名稱</th><th>預計完成日</th>
                         <th>所在欄位</th><th>負責人</th><th>最後活動日</th><th>風險標記</th>
                     </tr></thead>
                     <tbody></tbody>
@@ -1082,7 +1082,7 @@ html = f"""<!DOCTYPE html>
                 <table id="t1-risk-duesoon-table">
                     <thead>
                         <tr>
-                            <th>專案</th>
+                            <th>主題</th>
                             <th>卡片名稱</th>
                             <th>預計完成日</th>
                             <th>所在欄位</th>
@@ -1102,7 +1102,7 @@ html = f"""<!DOCTYPE html>
             <table id="t1-doing-table">
                 <thead>
                     <tr>
-                        <th>專案</th>
+                        <th>主題</th>
                         <th>卡片名稱</th>
                         <th>停滯天數 <span class="info-tip" data-tip="停滯定義：卡片在 Pipeline（Doing / Waiting / Review）中，超過 14 天無任何活動（以最後活動日計算）">ℹ️</span></th>
                         <th>所在欄位</th>
@@ -1133,7 +1133,7 @@ html = f"""<!DOCTYPE html>
             <div style="overflow-x:auto">
             <table id="t1-newdone-new-table" style="width:100%">
                 <thead><tr>
-                    <th>專案</th><th>卡片名稱</th><th>欄位</th><th>負責人</th><th>建立日</th>
+                    <th>主題</th><th>卡片名稱</th><th>欄位</th><th>負責人</th><th>建立日</th>
                 </tr></thead>
                 <tbody></tbody>
             </table>
@@ -1143,7 +1143,7 @@ html = f"""<!DOCTYPE html>
             <div style="overflow-x:auto">
             <table id="t1-newdone-done-table" style="width:100%">
                 <thead><tr>
-                    <th>專案</th><th>卡片名稱</th><th>負責人</th><th>完成日</th>
+                    <th>主題</th><th>卡片名稱</th><th>負責人</th><th>完成日</th>
                 </tr></thead>
                 <tbody></tbody>
             </table>
@@ -1161,7 +1161,7 @@ html = f"""<!DOCTYPE html>
             <table id="t1-all-table">
                 <thead>
                     <tr>
-                        <th>專案</th>
+                        <th>主題</th>
                         <th>卡片名稱</th>
                         <th>負責人</th>
                         <th>建立日</th>
@@ -1182,9 +1182,9 @@ html = f"""<!DOCTYPE html>
     <div id="t1-panel-parent" class="sub-panel">
         <div style="font-size:0.78em; color:#888; margin-bottom:8px;">＊資料範圍：依目前篩選條件顯示，僅列出「父任務」（有子任務的卡片），點擊可展開子任務；含所有欄位（包含 DONE / Closed）</div>
         <div style="margin-bottom:10px">
-            <label>依泳道篩選：</label>
+            <label>依主題篩選：</label>
             <select id="t1-parent-swim-filter" onchange="applyParentSwimFilter('t1')" style="padding:4px 8px;border-radius:4px;border:1px solid #ddd">
-                <option value="">全部泳道</option>
+                <option value="">全部主題</option>
             </select>
         </div>
         <div id="t1-parent-container"></div>
@@ -1312,7 +1312,7 @@ html = f"""<!DOCTYPE html>
             <div style="overflow-x:auto">
             <table id="t2-newdone-new-table" style="width:100%">
                 <thead><tr>
-                    <th>專案</th><th>卡片名稱</th><th>欄位</th><th>負責人</th><th>建立日</th>
+                    <th>主題</th><th>卡片名稱</th><th>欄位</th><th>負責人</th><th>建立日</th>
                 </tr></thead>
                 <tbody></tbody>
             </table>
@@ -1322,7 +1322,7 @@ html = f"""<!DOCTYPE html>
             <div style="overflow-x:auto">
             <table id="t2-newdone-done-table" style="width:100%">
                 <thead><tr>
-                    <th>專案</th><th>卡片名稱</th><th>負責人</th><th>完成日</th>
+                    <th>主題</th><th>卡片名稱</th><th>負責人</th><th>完成日</th>
                 </tr></thead>
                 <tbody></tbody>
             </table>
@@ -1338,7 +1338,7 @@ html = f"""<!DOCTYPE html>
             <table id="t2-all-table">
                 <thead>
                     <tr>
-                        <th>專案</th>
+                        <th>主題</th>
                         <th>卡片名稱</th>
                         <th>負責人</th>
                         <th>建立日</th>
@@ -1498,10 +1498,10 @@ function initFilters() {{
     const swimOptions = Object.entries(RAW.swimlanesMap)
         .map(([id, name]) => `<option value="${{id}}">${{name}}</option>`)
         .join('');
-    document.getElementById('t1-risk-swim-filter').innerHTML = '<option value="">全部泳道</option>' + swimOptions;
-    document.getElementById('t1-parent-swim-filter').innerHTML = '<option value="">全部泳道</option>' + swimOptions;
+    document.getElementById('t1-risk-swim-filter').innerHTML = '<option value="">全部主題</option>' + swimOptions;
+    document.getElementById('t1-parent-swim-filter').innerHTML = '<option value="">全部主題</option>' + swimOptions;
     const t2ParentSwimEl = document.getElementById('t2-parent-swim-filter');
-    if (t2ParentSwimEl) t2ParentSwimEl.innerHTML = '<option value="">全部泳道</option>' + swimOptions;
+    if (t2ParentSwimEl) t2ParentSwimEl.innerHTML = '<option value="">全部主題</option>' + swimOptions;
 
     // Close-outside-click handler for all dropdowns
     document.addEventListener('click', (e) => {{
@@ -1668,7 +1668,7 @@ function toggleGroup(el, groupKey, parentId) {{
             // 父任務群組：遞迴渲染所有後代
             const rows = renderChildrenRecursive(parentId, currentChildrenMap, 0);
             body.innerHTML = `<table><thead><tr>
-                <th>專案</th><th>卡片名稱</th><th>欄位</th><th>負責人</th>
+                <th>主題</th><th>卡片名稱</th><th>欄位</th><th>負責人</th>
                 <th>最後活動日</th><th>停滯天數</th><th>狀態</th>
             </tr></thead><tbody>${{rows || '<tr><td colspan="7" style="color:#999;text-align:center">無子任務</td></tr>'}}</tbody></table>`;
         }} else {{
@@ -1689,7 +1689,7 @@ function toggleGroup(el, groupKey, parentId) {{
                 </tr>`;
             }}).join('');
             body.innerHTML = `<table><thead><tr>
-                <th>專案</th><th>卡片名稱</th><th>欄位</th><th>負責人</th>
+                <th>主題</th><th>卡片名稱</th><th>欄位</th><th>負責人</th>
                 <th>最後活動日</th><th>停滯天數</th><th>狀態</th>
             </tr></thead><tbody>${{rows || '<tr><td colspan="7" style="color:#999;text-align:center">無資料</td></tr>'}}</tbody></table>`;
         }}
@@ -2644,7 +2644,7 @@ function renderNewDone1(cards, startDt, endDt) {{
                 </div>
                 <div class="act-group-body">
                     <table class="act-group-table">
-                        <thead><tr><th>專案</th><th>卡片名稱</th><th>欄位</th><th>負責人</th><th>最後活動日</th></tr></thead>
+                        <thead><tr><th>主題</th><th>卡片名稱</th><th>欄位</th><th>負責人</th><th>最後活動日</th></tr></thead>
                         <tbody>${{rowsHtml}}</tbody>
                     </table>
                 </div>
@@ -2986,7 +2986,7 @@ function renderNewDone2(cards, startDt, endDt) {{
                 </div>
                 <div class="act-group-body">
                     <table class="act-group-table">
-                        <thead><tr><th>專案</th><th>卡片名稱</th><th>欄位</th><th>負責人</th><th>最後活動日</th></tr></thead>
+                        <thead><tr><th>主題</th><th>卡片名稱</th><th>欄位</th><th>負責人</th><th>最後活動日</th></tr></thead>
                         <tbody>${{rowsHtml}}</tbody>
                     </table>
                 </div>
