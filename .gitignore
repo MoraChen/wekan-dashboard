@@ -28,6 +28,22 @@ Changelog.md
 # 含實際工作分析的週報草稿
 週報儀表板草稿_*.md
 
+# 協作記錄與反思（含對話歷史與個人工作模式）
+prompt.md
+reflection.md
+
+# 里程碑個人補充筆記（含使用者手動填寫的內容）
+milestone_notes.json
+
+# AI 分析產出結果（內部工作內容，不對外公開）
+AI分析結果/
+
+# AI 分析個人設定（可能含使用者本機路徑）
+ai_analysis_config.yaml
+
+# 含組織資訊的新版規格文件
+Task_dashboard_v7.md
+
 # 含組織資訊的舊版規格文件
 Task_dashboard.md
 Task_dashboard_v1.md
