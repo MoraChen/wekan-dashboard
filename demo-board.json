@@ -1,0 +1,468 @@
+{
+  "_id": "demo-board-001",
+  "title": "Demo Project Board",
+  "slug": "demo-board",
+  "createdAt": "2025-11-22T10:00:00.000Z",
+  "labels": [
+    {
+      "_id": "lbl-milestone",
+      "name": "里程碑",
+      "color": "orange"
+    },
+    {
+      "_id": "lbl-bug",
+      "name": "Bug",
+      "color": "red"
+    },
+    {
+      "_id": "lbl-feature",
+      "name": "Feature",
+      "color": "green"
+    }
+  ],
+  "members": [
+    {
+      "userId": "user-alice",
+      "isActive": true
+    },
+    {
+      "userId": "user-bob",
+      "isActive": true
+    },
+    {
+      "userId": "user-carol",
+      "isActive": true
+    }
+  ],
+  "users": [
+    {
+      "_id": "user-alice",
+      "username": "alice",
+      "profile": {
+        "fullname": "Alice Wang"
+      }
+    },
+    {
+      "_id": "user-bob",
+      "username": "bob",
+      "profile": {
+        "fullname": "Bob Chen"
+      }
+    },
+    {
+      "_id": "user-carol",
+      "username": "carol",
+      "profile": {
+        "fullname": "Carol Lin"
+      }
+    }
+  ],
+  "swimlanes": [
+    {
+      "_id": "swim-platform",
+      "title": "Platform",
+      "createdAt": "2025-11-22T10:00:00.000Z"
+    },
+    {
+      "_id": "swim-api",
+      "title": "API",
+      "createdAt": "2025-11-22T10:00:00.000Z"
+    },
+    {
+      "_id": "swim-frontend",
+      "title": "Frontend",
+      "createdAt": "2025-11-22T10:00:00.000Z"
+    },
+    {
+      "_id": "swim-infra",
+      "title": "Infra & Ops",
+      "createdAt": "2025-11-22T10:00:00.000Z"
+    },
+    {
+      "_id": "swim-closed",
+      "title": "closed",
+      "createdAt": "2025-11-22T10:00:00.000Z"
+    }
+  ],
+  "lists": [
+    {
+      "_id": "list-info",
+      "title": "Goal＆Project Info",
+      "createdAt": "2025-11-22T10:00:00.000Z"
+    },
+    {
+      "_id": "list-backlog",
+      "title": "Backlog",
+      "createdAt": "2025-11-22T10:00:00.000Z"
+    },
+    {
+      "_id": "list-ready",
+      "title": "Ready to GO",
+      "createdAt": "2025-11-22T10:00:00.000Z"
+    },
+    {
+      "_id": "list-doing",
+      "title": "Doing",
+      "createdAt": "2025-11-22T10:00:00.000Z"
+    },
+    {
+      "_id": "list-waiting",
+      "title": "Waiting",
+      "createdAt": "2025-11-22T10:00:00.000Z"
+    },
+    {
+      "_id": "list-review",
+      "title": "Review / User Test",
+      "createdAt": "2025-11-22T10:00:00.000Z"
+    },
+    {
+      "_id": "list-done",
+      "title": "DONE",
+      "createdAt": "2025-11-22T10:00:00.000Z"
+    },
+    {
+      "_id": "list-closed",
+      "title": "Closed",
+      "createdAt": "2025-11-22T10:00:00.000Z"
+    }
+  ],
+  "cards": [
+    {
+      "_id": "card-p1",
+      "title": "Platform roadmap v2",
+      "listId": "list-info",
+      "swimlaneId": "swim-platform",
+      "members": [
+        "user-alice"
+      ],
+      "assignees": [],
+      "labelIds": [],
+      "archived": false,
+      "createdAt": "2025-12-22T10:00:00.000Z",
+      "dateLastActivity": "2026-03-19T10:00:00.000Z",
+      "description": "## Goal\nDefine platform architecture for Q2.\n## 交付物\nArchitecture diagram, ADR documents.",
+      "parentId": null,
+      "dueAt": null,
+      "startAt": "2026-01-21T10:00:00.000Z",
+      "endAt": null
+    },
+    {
+      "_id": "card-p2",
+      "title": "Database migration to v5",
+      "listId": "list-doing",
+      "swimlaneId": "swim-platform",
+      "members": [
+        "user-alice"
+      ],
+      "assignees": [],
+      "labelIds": [
+        "lbl-milestone"
+      ],
+      "archived": false,
+      "createdAt": "2026-02-20T10:00:00.000Z",
+      "dateLastActivity": "2026-03-20T10:00:00.000Z",
+      "description": "## 現況描述\nMigration scripts 70% complete.\n## 交付物\nMigrated DB, rollback plan.",
+      "parentId": "card-p1",
+      "dueAt": "2026-03-27T10:00:00.000Z",
+      "startAt": "2026-02-20T10:00:00.000Z",
+      "endAt": null
+    },
+    {
+      "_id": "card-p3",
+      "title": "Write migration unit tests",
+      "listId": "list-doing",
+      "swimlaneId": "swim-platform",
+      "members": [
+        "user-bob"
+      ],
+      "assignees": [],
+      "labelIds": [],
+      "archived": false,
+      "createdAt": "2026-03-02T10:00:00.000Z",
+      "dateLastActivity": "2026-03-06T10:00:00.000Z",
+      "description": "",
+      "parentId": "card-p2",
+      "dueAt": null,
+      "startAt": "2026-03-02T10:00:00.000Z",
+      "endAt": null
+    },
+    {
+      "_id": "card-p4",
+      "title": "Deploy monitoring dashboard",
+      "listId": "list-backlog",
+      "swimlaneId": "swim-platform",
+      "members": [],
+      "assignees": [],
+      "labelIds": [],
+      "archived": false,
+      "createdAt": "2026-03-07T10:00:00.000Z",
+      "dateLastActivity": "2026-03-07T10:00:00.000Z",
+      "description": "",
+      "parentId": null,
+      "dueAt": null,
+      "startAt": null,
+      "endAt": null
+    },
+    {
+      "_id": "card-p5",
+      "title": "Platform v1 launch",
+      "listId": "list-done",
+      "swimlaneId": "swim-platform",
+      "members": [
+        "user-alice"
+      ],
+      "assignees": [],
+      "labelIds": [
+        "lbl-milestone"
+      ],
+      "archived": false,
+      "createdAt": "2026-01-21T10:00:00.000Z",
+      "dateLastActivity": "2026-03-17T10:00:00.000Z",
+      "description": "## 現況描述\nLaunched successfully.\n## 交付物\nProduction deployment, release notes.",
+      "parentId": null,
+      "dueAt": null,
+      "startAt": "2026-01-21T10:00:00.000Z",
+      "endAt": "2026-03-17T10:00:00.000Z"
+    },
+    {
+      "_id": "card-a1",
+      "title": "REST API v2 design",
+      "listId": "list-done",
+      "swimlaneId": "swim-api",
+      "members": [
+        "user-bob"
+      ],
+      "assignees": [],
+      "labelIds": [
+        "lbl-milestone"
+      ],
+      "archived": false,
+      "createdAt": "2026-02-05T10:00:00.000Z",
+      "dateLastActivity": "2026-03-16T10:00:00.000Z",
+      "description": "## 現況描述\nDesign complete, reviewed by team.\n## 交付物\nOpenAPI spec, Postman collection.",
+      "parentId": null,
+      "dueAt": null,
+      "startAt": "2026-02-05T10:00:00.000Z",
+      "endAt": "2026-03-16T10:00:00.000Z"
+    },
+    {
+      "_id": "card-a2",
+      "title": "Implement /users endpoint",
+      "listId": "list-review",
+      "swimlaneId": "swim-api",
+      "members": [
+        "user-bob"
+      ],
+      "assignees": [],
+      "labelIds": [
+        "lbl-feature"
+      ],
+      "archived": false,
+      "createdAt": "2026-03-08T10:00:00.000Z",
+      "dateLastActivity": "2026-03-21T10:00:00.000Z",
+      "description": "",
+      "parentId": "card-a1",
+      "dueAt": "2026-03-25T10:00:00.000Z",
+      "startAt": "2026-03-08T10:00:00.000Z",
+      "endAt": null
+    },
+    {
+      "_id": "card-a3",
+      "title": "Implement /reports endpoint",
+      "listId": "list-waiting",
+      "swimlaneId": "swim-api",
+      "members": [
+        "user-carol"
+      ],
+      "assignees": [],
+      "labelIds": [],
+      "archived": false,
+      "createdAt": "2026-03-12T10:00:00.000Z",
+      "dateLastActivity": "2026-03-18T10:00:00.000Z",
+      "description": "",
+      "parentId": "card-a1",
+      "dueAt": "2026-03-19T10:00:00.000Z",
+      "startAt": "2026-03-12T10:00:00.000Z",
+      "endAt": null
+    },
+    {
+      "_id": "card-a4",
+      "title": "API rate limiting",
+      "listId": "list-backlog",
+      "swimlaneId": "swim-api",
+      "members": [],
+      "assignees": [],
+      "labelIds": [],
+      "archived": false,
+      "createdAt": "2026-03-15T10:00:00.000Z",
+      "dateLastActivity": "2026-03-15T10:00:00.000Z",
+      "description": "",
+      "parentId": null,
+      "dueAt": null,
+      "startAt": null,
+      "endAt": null
+    },
+    {
+      "_id": "card-f1",
+      "title": "UI component library setup",
+      "listId": "list-done",
+      "swimlaneId": "swim-frontend",
+      "members": [
+        "user-carol"
+      ],
+      "assignees": [],
+      "labelIds": [],
+      "archived": false,
+      "createdAt": "2026-01-31T10:00:00.000Z",
+      "dateLastActivity": "2026-03-18T10:00:00.000Z",
+      "description": "",
+      "parentId": null,
+      "dueAt": null,
+      "startAt": "2026-01-31T10:00:00.000Z",
+      "endAt": "2026-03-18T10:00:00.000Z"
+    },
+    {
+      "_id": "card-f2",
+      "title": "Dashboard redesign",
+      "listId": "list-doing",
+      "swimlaneId": "swim-frontend",
+      "members": [
+        "user-carol"
+      ],
+      "assignees": [],
+      "labelIds": [
+        "lbl-feature",
+        "lbl-milestone"
+      ],
+      "archived": false,
+      "createdAt": "2026-03-10T10:00:00.000Z",
+      "dateLastActivity": "2026-03-21T10:00:00.000Z",
+      "description": "## 現況描述\nMockups approved, implementation 40%.\n## 交付物\nNew dashboard pages, responsive layout.",
+      "parentId": null,
+      "dueAt": "2026-03-17T10:00:00.000Z",
+      "startAt": "2026-03-10T10:00:00.000Z",
+      "endAt": null
+    },
+    {
+      "_id": "card-f3",
+      "title": "Fix login page layout bug",
+      "listId": "list-done",
+      "swimlaneId": "swim-frontend",
+      "members": [
+        "user-carol"
+      ],
+      "assignees": [],
+      "labelIds": [
+        "lbl-bug"
+      ],
+      "archived": false,
+      "createdAt": "2026-03-17T10:00:00.000Z",
+      "dateLastActivity": "2026-03-21T10:00:00.000Z",
+      "description": "",
+      "parentId": null,
+      "dueAt": null,
+      "startAt": "2026-03-17T10:00:00.000Z",
+      "endAt": "2026-03-21T10:00:00.000Z"
+    },
+    {
+      "_id": "card-f4",
+      "title": "Mobile responsive layout",
+      "listId": "list-ready",
+      "swimlaneId": "swim-frontend",
+      "members": [
+        "user-alice",
+        "user-carol"
+      ],
+      "assignees": [],
+      "labelIds": [],
+      "archived": false,
+      "createdAt": "2026-03-19T10:00:00.000Z",
+      "dateLastActivity": "2026-03-19T10:00:00.000Z",
+      "description": "",
+      "parentId": null,
+      "dueAt": "2026-03-15T10:00:00.000Z",
+      "startAt": null,
+      "endAt": null
+    },
+    {
+      "_id": "card-i1",
+      "title": "CI/CD pipeline setup",
+      "listId": "list-done",
+      "swimlaneId": "swim-infra",
+      "members": [
+        "user-bob"
+      ],
+      "assignees": [],
+      "labelIds": [
+        "lbl-milestone"
+      ],
+      "archived": false,
+      "createdAt": "2026-01-21T10:00:00.000Z",
+      "dateLastActivity": "2026-03-19T10:00:00.000Z",
+      "description": "## 現況描述\nGitHub Actions configured.\n## 交付物\nCI pipeline, auto-deploy to staging.",
+      "parentId": null,
+      "dueAt": null,
+      "startAt": "2026-01-21T10:00:00.000Z",
+      "endAt": "2026-03-19T10:00:00.000Z"
+    },
+    {
+      "_id": "card-i2",
+      "title": "Production environment provisioning",
+      "listId": "list-doing",
+      "swimlaneId": "swim-infra",
+      "members": [
+        "user-bob"
+      ],
+      "assignees": [],
+      "labelIds": [],
+      "archived": false,
+      "createdAt": "2026-03-14T10:00:00.000Z",
+      "dateLastActivity": "2026-03-02T10:00:00.000Z",
+      "description": "",
+      "parentId": null,
+      "dueAt": "2026-03-18T10:00:00.000Z",
+      "startAt": "2026-03-14T10:00:00.000Z",
+      "endAt": null
+    },
+    {
+      "_id": "card-i3",
+      "title": "Backup & restore procedure",
+      "listId": "list-backlog",
+      "swimlaneId": "swim-infra",
+      "members": [],
+      "assignees": [],
+      "labelIds": [],
+      "archived": false,
+      "createdAt": "2026-03-17T10:00:00.000Z",
+      "dateLastActivity": "2026-03-17T10:00:00.000Z",
+      "description": "",
+      "parentId": null,
+      "dueAt": null,
+      "startAt": null,
+      "endAt": null
+    },
+    {
+      "_id": "card-old1",
+      "title": "Legacy API cleanup (archived)",
+      "listId": "list-closed",
+      "swimlaneId": "swim-api",
+      "members": [
+        "user-alice"
+      ],
+      "assignees": [],
+      "labelIds": [],
+      "archived": true,
+      "createdAt": "2025-09-23T10:00:00.000Z",
+      "dateLastActivity": "2025-12-22T10:00:00.000Z",
+      "description": "",
+      "parentId": null,
+      "dueAt": null,
+      "startAt": "2025-09-23T10:00:00.000Z",
+      "endAt": "2025-12-22T10:00:00.000Z"
+    }
+  ],
+  "checklists": [],
+  "checklistItems": [],
+  "activities": [],
+  "comments": []
+}
