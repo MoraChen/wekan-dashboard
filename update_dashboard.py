@@ -86,8 +86,10 @@ if os.path.exists(TEAM_CONFIG_PATH):
     _board = _cfg.get("board", {})
     swim_order_cfg       = _board.get("swimlanes_order", [])
     default_swim_sel_cfg = _board.get("default_swim_selections", [])
+    milestone_label_cfg  = _board.get("milestone_label", "里程碑")
 else:
     _board = {}
+    milestone_label_cfg = "里程碑"
 
 # ── Wekan 卡片連結設定（從 team_config.json 的 board.wekan_card_url_base 讀取）─
 # 格式：https://your-wekan/b/{boardId}/{slug}
@@ -149,6 +151,37 @@ _lists_in_order   = _cfg.get("board", {}).get("lists_order", [])
 _unclassified     = [l for l in _lists_in_order if l not in _known_role_lists]
 _act_group_order  = _roles["review"] + _roles["doing"] + _unclassified + _roles["waiting"] + _roles["ready"]
 ACT_GROUP_ORDER_JSON = json.dumps(_act_group_order, ensure_ascii=False)
+
+# ── 卡片描述段落擷取（AI 用）────────────────────────────
+def extract_desc_sections(desc):
+    """從 Wekan 卡片描述的 Markdown 中擷取「現況描述」與「交付物」段落"""
+    if not desc:
+        return ""
+    target = {"現況描述", "交付物"}
+    result = []
+    current_sec = None
+    current_lines = []
+    for line in desc.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("## "):
+            # flush previous section
+            if current_sec and current_lines:
+                joined = " ".join(l.strip() for l in current_lines if l.strip())
+                if joined:
+                    result.append(f"[{current_sec}] {joined}")
+            current_sec = None
+            current_lines = []
+            sec_name = stripped[3:].strip()
+            if sec_name in target:
+                current_sec = sec_name
+        elif current_sec:
+            current_lines.append(line)
+    # flush last section
+    if current_sec and current_lines:
+        joined = " ".join(l.strip() for l in current_lines if l.strip())
+        if joined:
+            result.append(f"[{current_sec}] {joined}")
+    return " | ".join(result) if result else ""
 
 # ── 父子任務關係 ─────────────────────────────────────────
 child_parent_ids = set(c.get("parentId","") for c in data["cards"] if c.get("parentId",""))
@@ -228,6 +261,7 @@ for c in data["cards"]:
         "isChildTask":      bool(c.get("parentId","")),
         "isStandalone":     cid not in child_parent_ids and not bool(c.get("parentId","")),
         # cardNumber 已移除（JS 未使用）
+        "description_summary": extract_desc_sections(c.get("description", "")),
     })
 
 # ── AI 分析 Tab 資料（本週新增 / 完成 / 風險 / Doing）────
@@ -235,13 +269,16 @@ _risk_exclude_set = set(_risk_exclude)
 
 _ai_new = [
     {"swimlane": r["swimlane"], "title": r["title"],
-     "members": r["members"], "list": r["list"]}
+     "members": r["members"], "list": r["list"],
+     "desc": r["description_summary"]}
     for r in card_records
     if r["createdAt"] and parse_dt(r["createdAt"]) and parse_dt(r["createdAt"]) >= WEEK_START
     and not r["archived"]
 ]
 _ai_done = [
-    {"swimlane": r["swimlane"], "title": r["title"], "members": r["members"]}
+    {"swimlane": r["swimlane"], "title": r["title"],
+     "members": r["members"],
+     "desc": r["description_summary"]}
     for r in card_records
     if r["isDone"] and r["endAt"] and parse_dt(r["endAt"]) and parse_dt(r["endAt"]) >= WEEK_START
 ]
@@ -249,7 +286,8 @@ _ai_risk = [
     {"swimlane": r["swimlane"], "title": r["title"],
      "isStale": r["isStale"], "staleDays": r["staleDays"] or 0,
      "isOverdue": r["isOverdue"], "isDueSoon": r["isDueSoon"],
-     "dueAtDisplay": r["dueAtDisplay"]}
+     "dueAtDisplay": r["dueAtDisplay"],
+     "desc": r["description_summary"]}
     for r in card_records
     if r["list"] not in _risk_exclude_set
     and not r["archived"]
@@ -257,7 +295,8 @@ _ai_risk = [
 ]
 _ai_doing = [
     {"swimlane": r["swimlane"], "title": r["title"],
-     "members": r["members"], "isStale": r["isStale"], "staleDays": r["staleDays"] or 0}
+     "members": r["members"], "isStale": r["isStale"], "staleDays": r["staleDays"] or 0,
+     "desc": r["description_summary"]}
     for r in card_records
     if r["isDoing"] and not r["archived"]
 ]
@@ -265,6 +304,73 @@ AI_NEW_JSON   = json.dumps(_ai_new,   ensure_ascii=False)
 AI_DONE_JSON  = json.dumps(_ai_done,  ensure_ascii=False)
 AI_RISK_JSON  = json.dumps(_ai_risk,  ensure_ascii=False)
 AI_DOING_JSON = json.dumps(_ai_doing, ensure_ascii=False)
+
+# ── 成果亮點 Tab 資料（里程碑卡片）───────────────────────
+MILESTONE_LABEL     = milestone_label_cfg
+MILESTONE_LABEL_IDS = {
+    l["_id"] for l in data.get("labels", [])
+    if l.get("name") == MILESTONE_LABEL
+}
+# cardId → [labelId, ...] 快查表
+_card_label_ids = {
+    c["_id"]: (c.get("labelIds") or [])
+    for c in data.get("cards", [])
+}
+
+def _fmt_end_display(end_at):
+    dt = parse_dt(end_at)
+    if not dt:
+        return "—"
+    return f"{dt.year}/{dt.month:02d}/{dt.day:02d}"
+
+_ai_milestones = [
+    {
+        "id":              r["id"],
+        "title":           r["title"],
+        "swimlane":        r["swimlane"],
+        "members":         r["members"],
+        "labels":          r["labels"],
+        "list":            r["list"],
+        "isDone":          r["isDone"],
+        "isStale":         r["isStale"],
+        "staleDays":       r["staleDays"] or 0,
+        "endAt":           r["endAt"],
+        "endAtDisplay":    _fmt_end_display(r["endAt"]),
+        "lastActivity":    r["dateLastActivity"],
+        "lastActDisplay":  _fmt_end_display(r["dateLastActivity"]),
+        "dueAt":           r["dueAt"],
+        "dueAtDisplay":    r["dueAtDisplay"],
+        "desc":            r["description_summary"],
+    }
+    for r in card_records
+    if not r["archived"]
+    and any(lid in MILESTONE_LABEL_IDS
+            for lid in _card_label_ids.get(r["id"], []))
+]
+# 排序：進行中（非 DONE）優先（依 lastActivity 降冪），DONE 在後（依 endAt 降冪）
+_in_progress = sorted(
+    [x for x in _ai_milestones if not x["isDone"]],
+    key=lambda x: x["lastActivity"] or "", reverse=True
+)
+_done_ms = sorted(
+    [x for x in _ai_milestones if x["isDone"]],
+    key=lambda x: x["endAt"] or "", reverse=True
+)
+_ai_milestones = _in_progress + _done_ms
+MILESTONES_JSON = json.dumps(_ai_milestones, ensure_ascii=False)
+MILESTONE_LABEL_JSON = json.dumps(MILESTONE_LABEL, ensure_ascii=False)
+
+# ── 里程碑補充資料（milestone_notes.json）────────────────
+MILESTONE_NOTES_PATH = os.path.join(BASE_DIR, "milestone_notes.json")
+_milestone_notes = {}
+if os.path.exists(MILESTONE_NOTES_PATH):
+    try:
+        with open(MILESTONE_NOTES_PATH, "r", encoding="utf-8") as _f:
+            _milestone_notes = json.load(_f)
+    except Exception:
+        _milestone_notes = {}
+MILESTONE_NOTES_JSON     = json.dumps(_milestone_notes, ensure_ascii=False)
+MILESTONE_NOTES_DIR_JSON = json.dumps(os.path.basename(BASE_DIR), ensure_ascii=False)
 
 # ── 每週完成趨勢（近 12 週）────────────────────────────
 weekly_trend = []
@@ -796,6 +902,7 @@ html = f"""<!DOCTYPE html>
         .ai-swim-name {{ font-size:0.8em; color:#555; font-weight:600; }}
         .ai-card-row {{ font-size:0.84em; padding:2px 0 2px 10px; color:#333; }}
         .ai-card-meta {{ color:#888; font-size:0.9em; }}
+        .ai-card-desc {{ font-size:0.80em; color:#5a7fa8; padding:1px 0 3px 20px; line-height:1.4; }}
         .ai-empty {{ font-size:0.82em; color:#aaa; padding:3px 0; }}
         /* 右側編輯框 */
         #ai-notes {{
@@ -833,6 +940,110 @@ html = f"""<!DOCTYPE html>
             .ai-layout {{ flex-direction:column; }}
             .ai-left, .ai-right {{ flex:unset; width:100%; }}
         }}
+
+        /* ── 🏆 成果亮點 Tab ── */
+        .ms-filter-bar {{
+            display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+            background:#f5fbf5; border:1px solid #c3dfc3; border-radius:6px;
+            padding:9px 14px; margin-bottom:16px;
+        }}
+        .ms-filter-bar label {{ font-size:0.82em; color:#2e7d32; font-weight:600; white-space:nowrap; }}
+        .ms-filter-bar input[type=date] {{
+            font-size:0.82em; padding:3px 7px; border:1px solid #c3dfc3;
+            border-radius:4px; color:#333;
+        }}
+        .ms-filter-swim {{
+            font-size:0.82em; padding:3px 8px; border:1px solid #c3dfc3;
+            border-radius:4px; min-width:140px;
+        }}
+        .ms-count {{
+            font-size:0.82em; color:#555; margin-left:auto; white-space:nowrap;
+        }}
+        .ms-swim-header {{
+            font-size:0.9em; font-weight:700; color:#1a4f7a;
+            border-bottom:2px solid #c8dff0; margin:18px 0 8px;
+            padding-bottom:4px;
+        }}
+        .ms-empty {{
+            color:#aaa; font-size:0.88em; padding:30px 0; text-align:center;
+        }}
+        .ms-card {{
+            background:#fff; border:1px solid #ddeeff; border-radius:7px;
+            padding:12px 14px; margin-bottom:10px;
+            box-shadow:0 1px 3px rgba(0,0,0,0.05);
+            transition:box-shadow 0.15s;
+        }}
+        .ms-card:hover {{ box-shadow:0 2px 8px rgba(26,79,122,0.10); }}
+        .ms-card-done {{ border-left:4px solid #43a047; background:#fafffe; }}
+        .ms-card-meta-row {{
+            display:flex; align-items:center; justify-content:space-between;
+            gap:8px; margin-bottom:6px; flex-wrap:wrap;
+        }}
+        .ms-status-badge {{
+            font-size:0.75em; padding:2px 9px; border-radius:10px;
+            font-weight:600; white-space:nowrap; flex-shrink:0;
+        }}
+        .ms-status-badge.ms-done    {{ background:#e8f5e9; color:#2e7d32; border:1px solid #a5d6a7; }}
+        .ms-status-badge.ms-doing   {{ background:#e3f2fd; color:#1565c0; border:1px solid #90caf9; }}
+        .ms-status-badge.ms-waiting {{ background:#fff3e0; color:#e65100; border:1px solid #ffcc80; }}
+        .ms-status-badge.ms-review  {{ background:#f3e5f5; color:#6a1b9a; border:1px solid #ce93d8; }}
+        .ms-status-badge.ms-other   {{ background:#f5f5f5; color:#555;    border:1px solid #ddd; }}
+        .ms-card-title {{
+            display:flex; align-items:flex-start; justify-content:space-between;
+            gap:8px; margin-bottom:5px;
+        }}
+        .ms-card-title-left {{
+            font-size:0.92em; font-weight:600; color:#1a4f7a; flex:1; min-width:0;
+        }}
+        .ms-card-date {{
+            font-size:0.82em; color:#888; white-space:nowrap; flex-shrink:0;
+        }}
+        .ms-card-members {{
+            font-size:0.82em; color:#666; margin-bottom:7px;
+        }}
+        .ms-card-desc {{
+            font-size:0.80em; color:#5a7fa8; margin-bottom:6px;
+            padding:4px 8px; background:#f4f9ff; border-radius:4px;
+            border-left:3px solid #90c0e8; line-height:1.45;
+        }}
+        /* 補充說明 */
+        .ms-note-area {{ margin-top:6px; }}
+        .ms-note-placeholder {{
+            font-size:0.82em; color:#bbb; cursor:pointer; padding:3px 0;
+            display:flex; align-items:center; gap:4px;
+        }}
+        .ms-note-placeholder:hover {{ color:#1a73b5; }}
+        .ms-note-text {{
+            font-size:0.84em; color:#444; cursor:pointer; padding:4px 8px;
+            background:#fafcff; border-radius:4px; border:1px solid #e4eff9;
+            line-height:1.5;
+        }}
+        .ms-note-text:hover {{ border-color:#90c0e8; background:#f0f7ff; }}
+        .ms-note-input {{
+            width:100%; font-size:0.84em; padding:5px 8px;
+            border:1px solid #90c0e8; border-radius:4px;
+            font-family:inherit; resize:vertical; min-height:52px;
+            box-sizing:border-box; color:#333; line-height:1.5;
+        }}
+        /* 簡報連結 */
+        .ms-link-area {{ margin-top:6px; display:flex; align-items:center; gap:6px; }}
+        .ms-link-input {{
+            font-size:0.82em; padding:4px 8px; border:1px solid #ddd;
+            border-radius:4px; flex:1; color:#555; min-width:0;
+        }}
+        .ms-link-input:focus {{ border-color:#90c0e8; outline:none; }}
+        .ms-link-btn {{
+            font-size:0.82em; color:#1a73b5; text-decoration:none; white-space:nowrap;
+            padding:3px 10px; border:1px solid #90c0e8; border-radius:4px;
+            background:#f0f7ff; display:inline-flex; align-items:center; gap:4px;
+        }}
+        .ms-link-btn:hover {{ background:#ddeeff; text-decoration:underline; }}
+        .ms-link-clear {{
+            font-size:0.8em; color:#bbb; cursor:pointer; padding:2px 6px;
+            border:1px solid #ddd; border-radius:3px; background:#fafafa;
+            flex-shrink:0;
+        }}
+        .ms-link-clear:hover {{ color:#c00; border-color:#f99; }}
 
         /* 風險摘要卡 */
         .risk-summary {{
@@ -1111,6 +1322,7 @@ html = f"""<!DOCTYPE html>
     <button class="main-tab-btn active" onclick="switchMainTab('overview')">📊 總覽 & 風險管理</button>
     <button class="main-tab-btn" onclick="switchMainTab('personal')">👤 個人 & 細項追蹤</button>
     <button class="main-tab-btn" onclick="switchMainTab('ai')">🤖 AI 分析</button>
+    <button class="main-tab-btn" onclick="switchMainTab('milestones')">🏆 成果亮點</button>
 </div>
 
 <!-- ==================== TAB 1: 總覽 & 風險管理 ==================== -->
@@ -1560,6 +1772,45 @@ html = f"""<!DOCTYPE html>
 
 </div>
 
+<!-- ==================== TAB 4: 成果亮點 ==================== -->
+<div id="main-panel-milestones" class="main-panel">
+    <div style="max-width:1100px; margin:0 auto;">
+
+        <!-- 篩選列 -->
+        <div class="ms-filter-bar">
+            <label>完成日期</label>
+            <input type="date" id="ms-date-start" onchange="renderMilestones()">
+            <span style="color:#888;font-size:0.82em;">～</span>
+            <input type="date" id="ms-date-end" onchange="renderMilestones()">
+            <label style="margin-left:10px;">主題</label>
+            <select id="ms-swim-filter" class="ms-filter-swim" onchange="renderMilestones()">
+                <option value="">全部主題</option>
+            </select>
+            <span class="ms-count" id="ms-count">共 0 個里程碑</span>
+            <button id="ms-save-btn" onclick="saveMilestoneNotes()"
+                style="margin-left:auto;background:#2e7d32;color:white;border:none;
+                       padding:5px 14px;border-radius:5px;font-size:0.82em;
+                       cursor:pointer;white-space:nowrap;flex-shrink:0;">
+                💾 儲存補充資料
+            </button>
+        </div>
+        <div style="font-size:0.75em;color:#666;margin:-10px 0 14px;padding:4px 6px;
+                    background:#f9fff9;border:1px solid #d4edda;border-radius:4px;
+                    display:flex;align-items:flex-start;gap:6px;flex-wrap:wrap;">
+            <span>💡 儲存後請將檔案放到：</span>
+            <code id="ms-path-hint" style="color:#1a4f7a;background:#e8f2fc;
+                  padding:1px 7px;border-radius:3px;word-break:break-all;">
+                與 update_dashboard.py 同一資料夾
+            </code>
+            <span style="color:#aaa;">→ 下次更新儀表板即永久保存</span>
+        </div>
+
+        <!-- 內容區 -->
+        <div id="ms-content"></div>
+
+    </div>
+</div>
+
 <!-- ==================== TAB 3: AI 分析 ==================== -->
 <div id="main-panel-ai" class="main-panel">
     <div style="max-width:1200px; margin:0 auto;">
@@ -1640,10 +1891,18 @@ let t1SubTab = 'risk';
 let t2SubTab = 'newdone';
 let riskSwimFilter = '';
 
-// 改動 1: Tab 2 Lazy Init
+// Tab 2 Lazy Init
 let tab2Initialized = false;
 // Tab 3: AI 分析 Lazy Init
 let tab3Initialized = false;
+// Tab 4: 成果亮點 Lazy Init
+let tab4Initialized = false;
+
+// 成果亮點資料（Python 注入）
+const MILESTONES       = {MILESTONES_JSON};
+const MILESTONE_LABEL  = {MILESTONE_LABEL_JSON};
+const MILESTONE_NOTES  = {MILESTONE_NOTES_JSON};       // 永久補充資料（來自 milestone_notes.json）
+const MILESTONE_NOTES_DIR = {MILESTONE_NOTES_DIR_JSON}; // 檔案應存放的資料夾路徑
 
 // AI 分析資料（Python 注入）
 const AI_NEW   = {AI_NEW_JSON};
@@ -1804,6 +2063,266 @@ function makePicker(dropdownId, btnId, itemsId, placeholder) {{
     return {{ dropdown, btn }};
 }}
 
+// ==================== 🏆 成果亮點 Tab ====================
+
+function initMilestonesTab() {{
+    // 顯示正確存放路徑（資料夾名稱）
+    const hint = document.getElementById('ms-path-hint');
+    if (hint && MILESTONE_NOTES_DIR)
+        hint.textContent = MILESTONE_NOTES_DIR + '/milestone_notes.json';
+
+    // 從 milestone_notes.json（Python 注入）seed localStorage
+    // 規則：只在 localStorage 尚未有此 key 時才寫入（不覆蓋使用者已編輯的內容）
+    try {{
+        Object.entries(MILESTONE_NOTES).forEach(([id, data]) => {{
+            if (data.note !== undefined && !localStorage.getItem('ms_note_' + id))
+                localStorage.setItem('ms_note_' + id, data.note);
+            if (data.link !== undefined && !localStorage.getItem('ms_link_' + id))
+                localStorage.setItem('ms_link_' + id, data.link);
+        }});
+    }} catch(e) {{}}
+
+    // 填入主題下拉選單
+    const swimSet = new Set(MILESTONES.map(c => c.swimlane));
+    const ordered = SWIM_ORDER.filter(s => swimSet.has(s))
+        .concat([...swimSet].filter(s => !SWIM_ORDER.includes(s)));
+    const sel = document.getElementById('ms-swim-filter');
+    ordered.forEach(s => {{
+        const opt = document.createElement('option');
+        opt.value = s; opt.textContent = s;
+        sel.appendChild(opt);
+    }});
+    renderMilestones();
+}}
+
+function _filterMilestones() {{
+    const startVal = document.getElementById('ms-date-start')?.value || '';
+    const endVal   = document.getElementById('ms-date-end')?.value   || '';
+    const swimVal  = document.getElementById('ms-swim-filter')?.value || '';
+    return MILESTONES.filter(c => {{
+        if (swimVal && c.swimlane !== swimVal) return false;
+        if (startVal && c.endAt && c.endAt.slice(0,10) < startVal) return false;
+        if (endVal   && c.endAt && c.endAt.slice(0,10) > endVal)   return false;
+        return true;
+    }});
+}}
+
+function _groupMilestonesBySwim(cards) {{
+    // 依 SWIM_ORDER 排序各主題
+    const map = {{}};
+    cards.forEach(c => {{
+        if (!map[c.swimlane]) map[c.swimlane] = [];
+        map[c.swimlane].push(c);
+    }});
+    const ordered = SWIM_ORDER.filter(s => map[s]);
+    Object.keys(map).forEach(s => {{ if (!ordered.includes(s)) ordered.push(s); }});
+    const result = {{}};
+    ordered.forEach(s => {{ result[s] = map[s]; }});
+    return result;
+}}
+
+function _msGetNote(id) {{
+    try {{ return localStorage.getItem('ms_note_' + id) || ''; }} catch(e) {{ return ''; }}
+}}
+function _msGetLink(id) {{
+    try {{ return localStorage.getItem('ms_link_' + id) || ''; }} catch(e) {{ return ''; }}
+}}
+
+function msSaveNote(id) {{
+    const el = document.getElementById('ms-note-input-' + id);
+    if (!el) return;
+    try {{ localStorage.setItem('ms_note_' + id, el.value); }} catch(e) {{}}
+    _msRefreshNote(id);
+}}
+
+function msEditNote(id) {{
+    document.getElementById('ms-note-display-' + id).style.display = 'none';
+    const inp = document.getElementById('ms-note-input-' + id);
+    inp.style.display = '';
+    inp.focus();
+    inp.setSelectionRange(inp.value.length, inp.value.length);
+}}
+
+function msBlurNote(id) {{
+    msSaveNote(id);
+}}
+
+function _msRefreshNote(id) {{
+    const note = _msGetNote(id);
+    const inp  = document.getElementById('ms-note-input-' + id);
+    const disp = document.getElementById('ms-note-display-' + id);
+    if (!inp || !disp) return;
+    inp.style.display = 'none';
+    if (note) {{
+        disp.innerHTML = `<div class="ms-note-text" onclick="msEditNote('${{id}}')">${{note.replace(/\\n/g,'<br>')}}</div>`;
+    }} else {{
+        disp.innerHTML = `<div class="ms-note-placeholder" onclick="msEditNote('${{id}}')">💬 點擊新增說明</div>`;
+    }}
+    disp.style.display = '';
+}}
+
+function msSaveLink(id) {{
+    const inp = document.getElementById('ms-link-input-' + id);
+    if (!inp) return;
+    let url = inp.value.trim();
+    if (url && !url.match(/^https?:\\/\\//)) url = 'https://' + url;
+    try {{ localStorage.setItem('ms_link_' + id, url); }} catch(e) {{}}
+    _msRefreshLink(id);
+}}
+
+function msClearLink(id) {{
+    try {{ localStorage.removeItem('ms_link_' + id); }} catch(e) {{}}
+    _msRefreshLink(id);
+}}
+
+function _msRefreshLink(id) {{
+    const link = _msGetLink(id);
+    const area = document.getElementById('ms-link-area-' + id);
+    if (!area) return;
+    if (link) {{
+        area.innerHTML = `
+            <a href="${{link}}" target="_blank" class="ms-link-btn">🔗 查看簡報 →</a>
+            <span class="ms-link-clear" onclick="msClearLink('${{id}}')">✕</span>`;
+    }} else {{
+        area.innerHTML = `
+            <input id="ms-link-input-${{id}}" class="ms-link-input"
+                   placeholder="🔗 貼入簡報連結…"
+                   onblur="msSaveLink('${{id}}')"
+                   onkeydown="if(event.key==='Enter')msSaveLink('${{id}}')">`;
+    }}
+}}
+
+function _msBuildNotesJSON() {{
+    const result = {{}};
+    MILESTONES.forEach(c => {{
+        const note = _msGetNote(c.id);
+        const link = _msGetLink(c.id);
+        if (note || link) result[c.id] = {{ note, link, title: c.title }};
+    }});
+    // 保留歷史資料（不在目前卡片中的 entry）
+    Object.entries(MILESTONE_NOTES).forEach(([id, data]) => {{
+        if (!result[id]) result[id] = data;
+    }});
+    return JSON.stringify(result, null, 2);
+}}
+
+function _msSaveFeedback() {{
+    const btn = document.getElementById('ms-save-btn');
+    if (!btn) return;
+    btn.textContent = '✅ 已儲存！';
+    setTimeout(() => {{ btn.textContent = '💾 儲存補充資料'; }}, 2500);
+}}
+
+function _msFallbackDownload(jsonStr) {{
+    const blob = new Blob([jsonStr], {{ type: 'application/json;charset=utf-8' }});
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = 'milestone_notes.json';
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
+}}
+
+async function saveMilestoneNotes() {{
+    const jsonStr = _msBuildNotesJSON();
+    if (window.showSaveFilePicker) {{
+        try {{
+            const handle = await window.showSaveFilePicker({{
+                suggestedName: 'milestone_notes.json',
+                types: [{{ description: 'JSON 檔案', accept: {{ 'application/json': ['.json'] }} }}]
+            }});
+            const writable = await handle.createWritable();
+            await writable.write(jsonStr);
+            await writable.close();
+            _msSaveFeedback();
+        }} catch(e) {{
+            if (e.name !== 'AbortError') _msFallbackDownload(jsonStr);
+            // AbortError = 使用者按取消，不做任何事
+        }}
+    }} else {{
+        // 不支援 showSaveFilePicker（Firefox 等）→ 直接下載
+        _msFallbackDownload(jsonStr);
+        _msSaveFeedback();
+    }}
+}}
+
+function _msStatusBadge(c) {{
+    if (c.isDone) return `<span class="ms-status-badge ms-done">✅ 已完成</span>`;
+    if (c.list === 'Doing')   return `<span class="ms-status-badge ms-doing">▶ Doing${{c.isStale ? ` · 停滯${{c.staleDays}}天` : ''}}</span>`;
+    if (c.list === 'Waiting') return `<span class="ms-status-badge ms-waiting">⏸ Waiting</span>`;
+    if (c.list === 'Review / 使用者Test') return `<span class="ms-status-badge ms-review">🔍 Review</span>`;
+    return `<span class="ms-status-badge ms-other">${{c.list}}</span>`;
+}}
+
+function _msDateLine(c) {{
+    if (c.isDone && c.endAtDisplay !== '—')
+        return `完成：${{c.endAtDisplay}}`;
+    if (c.dueAtDisplay)
+        return `預計：${{c.dueAtDisplay}}`;
+    if (c.lastActDisplay !== '—')
+        return `最後活動：${{c.lastActDisplay}}`;
+    return '';
+}}
+
+function renderMilestones() {{
+    const filtered = _filterMilestones();
+    document.getElementById('ms-count').textContent = `共 ${{filtered.length}} 個里程碑`;
+
+    const content = document.getElementById('ms-content');
+    if (!content) return;
+
+    if (filtered.length === 0) {{
+        content.innerHTML = `<div class="ms-empty">目前沒有符合條件的里程碑卡片<br><small>請在 Wekan 卡片上加入「${{MILESTONE_LABEL}}」標籤</small></div>`;
+        return;
+    }}
+
+    const groups = _groupMilestonesBySwim(filtered);
+    let html = '';
+    Object.entries(groups).forEach(([swim, cards]) => {{
+        html += `<div class="ms-swim-header">── 主題：${{swim}}（${{cards.length}} 個里程碑）</div>`;
+        cards.forEach(c => {{
+            const note    = _msGetNote(c.id);
+            const link    = _msGetLink(c.id);
+            const membersStr = c.members.length ? '👤 ' + c.members.join('・') : '👤 未指定';
+            const dateLine   = _msDateLine(c);
+
+            const noteDisplayHtml = note
+                ? `<div class="ms-note-text" onclick="msEditNote('${{c.id}}')">${{note.replace(/\\n/g,'<br>')}}</div>`
+                : `<div class="ms-note-placeholder" onclick="msEditNote('${{c.id}}')">💬 點擊新增說明</div>`;
+
+            const linkHtml = link
+                ? `<a href="${{link}}" target="_blank" class="ms-link-btn">🔗 查看簡報 →</a>
+                   <span class="ms-link-clear" onclick="msClearLink('${{c.id}}')">✕</span>`
+                : `<input id="ms-link-input-${{c.id}}" class="ms-link-input"
+                          placeholder="🔗 貼入簡報連結…"
+                          onblur="msSaveLink('${{c.id}}')"
+                          onkeydown="if(event.key==='Enter')msSaveLink('${{c.id}}')">`;
+
+            html += `
+            <div class="ms-card${{c.isDone ? ' ms-card-done' : ''}}">
+                <div class="ms-card-title">
+                    <div class="ms-card-title-left">🏆 ${{cardLink(c.id, c.title)}}</div>
+                    ${{_msStatusBadge(c)}}
+                </div>
+                <div class="ms-card-meta-row">
+                    <span class="ms-card-members">${{membersStr}}</span>
+                    ${{dateLine ? `<span class="ms-card-date">${{dateLine}}</span>` : ''}}
+                </div>
+                ${{c.desc ? `<div class="ms-card-desc">↳ ${{c.desc}}</div>` : ''}}
+                <div class="ms-note-area">
+                    <div id="ms-note-display-${{c.id}}">${{noteDisplayHtml}}</div>
+                    <textarea id="ms-note-input-${{c.id}}" class="ms-note-input"
+                        style="display:none"
+                        onblur="msBlurNote('${{c.id}}')"
+                    >${{note}}</textarea>
+                </div>
+                <div class="ms-link-area" id="ms-link-area-${{c.id}}">${{linkHtml}}</div>
+            </div>`;
+        }});
+    }});
+
+    content.innerHTML = html;
+}}
+
 // ==================== Main Tab Switch ====================
 
 function switchMainTab(name) {{
@@ -1829,6 +2348,13 @@ function switchMainTab(name) {{
         if (!tab3Initialized) {{
             tab3Initialized = true;
             initAITab();
+        }}
+    }} else if (name === 'milestones') {{
+        document.getElementById('main-panel-milestones').classList.add('active');
+        btns[3].classList.add('active');
+        if (!tab4Initialized) {{
+            tab4Initialized = true;
+            initMilestonesTab();
         }}
     }}
 }}
@@ -1912,10 +2438,12 @@ function renderAIPreview() {{
     const box = document.getElementById('ai-preview-box');
     if (!box) return;
     const sections = [
-        {{ data: AI_NEW,   icon: '📥', label: '本週新增',
-           row: c => `${{c.title}}<span class="ai-card-meta">（${{c.members.join('、')||'無負責人'}}，${{c.list}}）</span>` }},
         {{ data: AI_DONE,  icon: '✅', label: '本週完成',
-           row: c => `${{c.title}}<span class="ai-card-meta">（${{c.members.join('、')||'無負責人'}}）</span>` }},
+           row: c => `${{c.title}}<span class="ai-card-meta">（${{c.members.join('、')||'無負責人'}}）</span>`,
+           showDesc: true }},
+        {{ data: AI_NEW,   icon: '📥', label: '本週新增',
+           row: c => `${{c.title}}<span class="ai-card-meta">（${{c.members.join('、')||'無負責人'}}，${{c.list}}）</span>`,
+           showDesc: false }},
         {{ data: AI_RISK,  icon: '⚠️', label: '目前風險',
            row: c => {{
                const t = [];
@@ -1923,9 +2451,10 @@ function renderAIPreview() {{
                if (c.isDueSoon) t.push(`⚡ 即將到期：${{c.dueAtDisplay}}`);
                if (c.isStale)   t.push(`停滯${{c.staleDays}}天`);
                return `${{c.title}}<span class="ai-card-meta">（${{t.join('、')}}）</span>`;
-           }} }},
+           }}, showDesc: false }},
         {{ data: AI_DOING, icon: '▶️', label: 'Doing 中',
-           row: c => `${{c.title}}<span class="ai-card-meta">（${{c.members.join('、')||'無負責人'}}，${{c.isStale?`停滯${{c.staleDays}}天`:'活躍'}}）</span>` }},
+           row: c => `${{c.title}}<span class="ai-card-meta">（${{c.members.join('、')||'無負責人'}}，${{c.isStale?`停滯${{c.staleDays}}天`:'活躍'}}）</span>`,
+           showDesc: false }},
     ];
     let html = '';
     sections.forEach(s => {{
@@ -1936,7 +2465,12 @@ function renderAIPreview() {{
         }} else {{
             Object.entries(groups).forEach(([swim, cards]) => {{
                 html += `<div class="ai-swim-group"><span class="ai-swim-name">主題：${{swim}}</span>`;
-                cards.forEach(c => {{ html += `<div class="ai-card-row">• ${{s.row(c)}}</div>`; }});
+                cards.forEach(c => {{
+                    html += `<div class="ai-card-row">• ${{s.row(c)}}</div>`;
+                    if (s.showDesc && c.desc) {{
+                        html += `<div class="ai-card-desc">↳ ${{c.desc}}</div>`;
+                    }}
+                }});
                 html += `</div>`;
             }});
         }}
@@ -1946,21 +2480,22 @@ function renderAIPreview() {{
 }}
 
 function buildAICopyText() {{
+    const fmtDesc = desc => desc ? `\n      └ ${{desc}}` : '';
     const fmt = (cards, rowFn) => {{
         if (cards.length === 0) return '  （無）\\n';
         const groups = _groupBySwimlane(cards);
         let s = '';
         Object.entries(groups).forEach(([swim, items]) => {{
             s += `主題：${{swim}}\n`;
-            items.forEach(c => {{ s += `  - ${{rowFn(c)}}\n`; }});
+            items.forEach(c => {{ s += `  - ${{rowFn(c)}}${{fmtDesc(c.desc)}}\n`; }});
         }});
         return s;
     }};
     return [
-        `【本週新增 ${{AI_NEW.length}} 張】`,
-        fmt(AI_NEW,   c => `${{c.title}}（負責人：${{c.members.join('、')||'無'}}，欄位：${{c.list}}）`),
         `【本週完成 ${{AI_DONE.length}} 張】`,
         fmt(AI_DONE,  c => `${{c.title}}（負責人：${{c.members.join('、')||'無'}}）`),
+        `【本週新增 ${{AI_NEW.length}} 張】`,
+        fmt(AI_NEW,   c => `${{c.title}}（負責人：${{c.members.join('、')||'無'}}，欄位：${{c.list}}）`),
         `【目前風險 ${{AI_RISK.length}} 張】`,
         fmt(AI_RISK,  c => {{
             const t = [];
