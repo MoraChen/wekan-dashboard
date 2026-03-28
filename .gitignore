@@ -23,8 +23,8 @@ CLAUDE.md
 PLAYBOOK.md
 
 # 含系統名稱的最新版儀表板規格文件（SDD）
-Task_dashboard_v6_SDD.md
-Task_dashboard_v7_SDD.md
+# 用 wildcard 涵蓋所有現在與未來版本，不需每次手動新增
+Task_dashboard_v*_SDD.md
 
 # 含真實專案名稱的變更紀錄
 Changelog.md
@@ -60,16 +60,9 @@ ai_prompt_template.md
 # 資安規範文件（含內部風險說明）
 資安風險規範.md
 
-# 含組織資訊的新版規格文件
-Task_dashboard_v7.md
-
-# 含組織資訊的舊版規格文件
-Task_dashboard.md
-Task_dashboard_v1.md
-Task_dashboard_v2.md
-Task_dashboard_v3.md
-Task_dashboard_v4.md
-Task_dashboard_v5.md
+# 含組織資訊的所有版本規格文件（舊式無 _SDD 後綴）
+# wildcard 涵蓋 Task_dashboard.md、Task_dashboard_v1.md … 至 Task_dashboard_v7.md 等
+Task_dashboard*.md
 kpi.md
 wekan column definition.md
 
