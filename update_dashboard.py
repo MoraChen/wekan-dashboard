@@ -13,7 +13,7 @@ Wekan 週報儀表板更新腳本
 注意：每次執行都會產生新的 HTML 檔，舊的不會被覆蓋。
 """
 
-import json, os, glob
+import json, os, glob, re
 from datetime import datetime, timezone, timedelta
 from collections import defaultdict
 
@@ -196,6 +196,97 @@ def extract_desc_sections(desc):
         if joined:
             result.append(f"[{current_sec}] {joined}")
     return " | ".join(result) if result else ""
+
+# ── 完整描述解析（AI 分析用）────────────────────────────
+def parse_description(desc):
+    """
+    解析 Wekan 卡片 description，提取各段落與連結。
+    支援格式：## 標題 / 標題： / **標題：**
+    回傳 {"description_raw": str, "description_sections": dict}
+    其中 "相關連結" 回傳 [{"label": str, "url": str}, ...] 清單。
+    """
+    if not desc:
+        return {"description_raw": "", "description_sections": {}}
+
+    KNOWN_SECTIONS = ["現況描述", "目標", "任務目的", "交付物", "完成定義", "相關連結"]
+    SECTION_ALIASES = {"definition of done": "完成定義", "dod": "完成定義"}
+
+    def normalize_sec(name):
+        n = re.sub(r'\*', '', name).strip().rstrip('：: ').strip()
+        lower_n = n.lower()
+        for alias, canonical in SECTION_ALIASES.items():
+            if alias in lower_n:
+                return canonical
+        for s in KNOWN_SECTIONS:
+            if n.startswith(s):
+                return s
+        return n
+
+    def is_section_header(line):
+        s = line.strip()
+        # ## 標題 style
+        m = re.match(r'^#{1,3}\s+(.+)', s)
+        if m:
+            return normalize_sec(m.group(1))
+        # **標題：** style
+        m = re.match(r'^\*\*(.+?)\*\*\s*[：:]?\s*$', s)
+        if m:
+            cand = normalize_sec(m.group(1))
+            if cand in KNOWN_SECTIONS:
+                return cand
+        # 標題：（行末為冒號，長度限制避免誤判）
+        m = re.match(r'^([^-*\[\(（\d]{1,25})[：:]\s*$', s)
+        if m:
+            return normalize_sec(m.group(1))
+        return None
+
+    def extract_links(text):
+        links = []
+        # Markdown: [label](url)
+        for label, url in re.findall(r'\[([^\]]+)\]\((https?://[^\)]+)\)', text):
+            links.append({"label": label.strip(), "url": url.strip()})
+        cleaned = re.sub(r'\[[^\]]+\]\(https?://[^\)]+\)', '', text)
+        # 標籤 URL：label：url 或 label: url
+        for m in re.finditer(r'([^\n（(：:]{1,30})[：:]\s*(https?://\S+)', cleaned):
+            url = m.group(2).rstrip('.,;)')
+            links.append({"label": m.group(1).strip(), "url": url})
+        # 裸 URL（去除已抓到的）
+        seen_urls = {lk["url"] for lk in links}
+        cleaned2 = re.sub(r'[^\n]{0,30}[：:]\s*https?://\S+', '', cleaned)
+        for url in re.findall(r'https?://\S+', cleaned2):
+            url = url.rstrip('.,;)')
+            if url not in seen_urls:
+                links.append({"label": url, "url": url})
+                seen_urls.add(url)
+        return links
+
+    sections = {}
+    current_sec = None
+    current_lines = []
+
+    def flush():
+        nonlocal current_sec, current_lines
+        if current_sec is not None and current_lines:
+            content = "\n".join(current_lines).strip()
+            if content:
+                if current_sec == "相關連結":
+                    lks = extract_links(content)
+                    sections[current_sec] = lks if lks else content
+                else:
+                    sections[current_sec] = content
+        current_sec = None
+        current_lines = []
+
+    for line in desc.splitlines():
+        header = is_section_header(line)
+        if header:
+            flush()
+            current_sec = header
+        elif current_sec is not None:
+            current_lines.append(line)
+    flush()
+
+    return {"description_raw": desc, "description_sections": sections}
 
 # ── 父子任務關係 ─────────────────────────────────────────
 child_parent_ids = set(c.get("parentId","") for c in data["cards"] if c.get("parentId",""))
@@ -497,3 +588,68 @@ with open(OUT_FILE, "w", encoding="utf-8") as f:
     f.write(html)
 print(f"🎉 儀表板已產生：{os.path.basename(OUT_FILE)}")
 print(f"   路徑：{OUT_FILE}")
+
+# ── 產出 ai_data.json（供 Cowork Task G 分析用）────────────────────────────
+# 包含完整卡片描述（description_raw + description_sections），Python 直接寫出，
+# 不經過瀏覽器，不受 File System Access API buffer 上限限制。
+
+_raw_desc_by_id = {c["_id"]: c.get("description", "") for c in data["cards"]}
+_risk_exclude_names = set(_risk_exclude)
+_tz_tw = timezone(timedelta(hours=8))
+
+def _ai_card(r, include_desc=True):
+    rec = {
+        "id":             r["id"],
+        "title":          r["title"],
+        "swimlane":       r["swimlane"],
+        "list":           r["list"],
+        "members":        r["members"],
+        "stale_days":     r["staleDays"],
+        "is_stale":       r["isStale"],
+        "is_overdue":     r["isOverdue"],
+        "is_due_soon":    r["isDueSoon"],
+        "due_at_display": r["dueAtDisplay"],
+    }
+    if include_desc:
+        parsed = parse_description(_raw_desc_by_id.get(r["id"], ""))
+        rec["description_raw"]      = parsed["description_raw"]
+        rec["description_sections"] = parsed["description_sections"]
+    return rec
+
+_done_tw   = [r for r in card_records if r["isDone"] and r["endAt"]
+              and parse_dt(r["endAt"]) and parse_dt(r["endAt"]) >= WEEK_START]
+_new_tw    = [r for r in card_records if r["createdAt"]
+              and parse_dt(r["createdAt"]) and parse_dt(r["createdAt"]) >= WEEK_START
+              and not r["archived"]]
+_risk_tw   = [r for r in card_records if r["list"] not in _risk_exclude_names
+              and not r["archived"] and (r["isStale"] or r["isOverdue"] or r["isDueSoon"])]
+_doing_tw  = [r for r in card_records if r["isDoing"]   and not r["archived"]]
+_wait_tw   = [r for r in card_records if r["isWaiting"] and not r["archived"]]
+_review_tw = [r for r in card_records if r["isReview"]  and not r["archived"]]
+
+_ai_data = {
+    "generated_at":      datetime.now(_tz_tw).isoformat(),
+    "wekan_json_source": os.path.basename(JSON_PATH),
+    "today":             f"{NOW.year}/{NOW.month}/{NOW.day}",
+    "stats": {
+        "done_this_week": len(_done_tw),
+        "new_this_week":  len(_new_tw),
+        "risk":           len(_risk_tw),
+        "doing":          len(_doing_tw),
+        "waiting":        len(_wait_tw),
+        "review":         len(_review_tw),
+    },
+    # 含完整描述
+    "done_this_week": [_ai_card(r) for r in _done_tw],
+    "risk":           [_ai_card(r) for r in _risk_tw],
+    "doing":          [_ai_card(r) for r in _doing_tw],
+    "waiting":        [_ai_card(r) for r in _wait_tw],
+    "review":         [_ai_card(r) for r in _review_tw],
+    # 新增卡片不帶描述（通常尚未填寫）
+    "new_this_week":  [_ai_card(r, include_desc=False) for r in _new_tw],
+}
+
+AI_DATA_PATH = os.path.join(BASE_DIR, "ai_data.json")
+with open(AI_DATA_PATH, "w", encoding="utf-8") as _f:
+    json.dump(_ai_data, _f, ensure_ascii=False, indent=2)
+print(f"🤖 AI 資料已更新：ai_data.json（{os.path.getsize(AI_DATA_PATH)//1024} KB）")

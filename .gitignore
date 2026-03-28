@@ -48,8 +48,11 @@ AI分析結果/
 # AI 分析個人設定（可能含使用者本機路徑）
 ai_analysis_config.yaml
 
-# AI 分析橋接觸發檔（含完整看板資料，屬機敏內容）
+# AI 分析橋接觸發檔（含 prompt 模板與輸出設定）
 ai_request.json
+
+# AI 分析完整卡片資料（含描述、人名、連結，屬機敏內容）
+ai_data.json
 
 # AI Prompt 模板（含使用者自訂指令與分析策略）
 ai_prompt_template.md

@@ -1186,26 +1186,25 @@ async function generateAIRequest() {
     const today = `${now.getFullYear()}/${pad(now.getMonth()+1)}/${pad(now.getDate())}`;
     const ts    = `${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
 
-    const template  = getCurrentPrompt();
-    const wekanData = buildAICopyText();
-    const fullPrompt = template
-        .replace('{{TODAY}}', today)
-        .replace('{{WEKAN_DATA}}', wekanData);
+    const template   = getCurrentPrompt();
+    const promptMeta = await _loadPromptMeta();
 
+    // 方案 B：ai_request.json 只存 prompt 模板與中繼資訊（不含 Wekan 資料）
+    // 完整卡片資料由 Python 寫入 ai_data.json，Cowork 讀取後組合 prompt
     const requestObj = {
-        generated_at:    now.toISOString(),
-        today:           today,
-        prompt:          fullPrompt,
-        prompt_template: template,
-        data_only:       wekanData,
-        output_filename: `${AI_FILENAME_PREFIX}_${ts}.md`,
-        output_folder:   AI_SAVE_FOLDER,
-        ready:           true
+        generated_at:        now.toISOString(),
+        today:               today,
+        prompt_template:     template,
+        prompt_version_info: promptMeta || null,
+        output_filename:     `${AI_FILENAME_PREFIX}_${ts}.md`,
+        output_folder:       AI_SAVE_FOLDER,
+        ready:               true
     };
 
     try {
         const fh = await dir.getFileHandle('ai_request.json', { create: true });
-        const writable = await fh.createWritable();
+        // keepExistingData: false 確保舊內容完整截斷，避免尾端殘留 null byte
+        const writable = await fh.createWritable({ keepExistingData: false });
         await writable.write(JSON.stringify(requestObj, null, 2));
         await writable.close();
         setStatus('✅ 請求已產生！請切換到 Cowork 說「分析」', '#2e7d32');
