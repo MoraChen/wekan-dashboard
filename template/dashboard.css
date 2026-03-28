@@ -576,8 +576,19 @@
             background:#1565c0; color:#fff;
         }
         .ai-action-primary:hover { background:#1248a0; }
+        /* 放在 header 行中的精簡版 */
+        .ai-gen-header-btn {
+            padding:3px 10px !important; font-size:0.78em !important;
+            border-radius:5px !important;
+        }
         .ai-request-status {
             font-size:0.82em; color:#555; flex:1; min-width:0;
+        }
+        /* header 下方的狀態列（取代 ai-action-bar） */
+        .ai-request-status-bar {
+            padding:4px 14px; min-height:22px;
+            border-left:1px solid #d8e8f8; border-right:1px solid #d8e8f8;
+            background:#f4f9ff; font-size:0.8em;
         }
         .ai-load-btn {
             padding:4px 10px; border-radius:5px;

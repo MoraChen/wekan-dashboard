@@ -656,7 +656,7 @@ function _buildAISaveContent(filename) {
 async function saveAIToFile() {
     const content = document.getElementById('ai-notes').value.trim();
     if (!content) {
-        alert('尚無分析內容，請先切換到「✏️ 編輯」模式，貼入 AI 分析結果後再儲存。');
+        alert('尚無分析內容，請先載入或輸入分析內容後再儲存。');
         return;
     }
 
@@ -664,7 +664,37 @@ async function saveAIToFile() {
     const filename = _buildAISaveFilename();
     const text     = _buildAISaveContent(filename);
 
-    // 優先使用 File System Access API（Chrome/Edge 支援，會開啟原生另存視窗）
+    const markSaved = (label) => {
+        setWorkflowStep(6, true);
+        const hint = document.getElementById('ai-save-hint');
+        if (hint) {
+            hint.innerHTML =
+                `<span style="color:#2e7d32;font-weight:600">✅ 已儲存：</span>` +
+                `<code style="font-size:0.95em;color:#1a4f7a;background:#e8f2fc;` +
+                `padding:1px 6px;border-radius:3px;">${label}</code>`;
+        }
+        btn.textContent = '✅ 已儲存！';
+        setTimeout(() => { btn.textContent = '💾 儲存本週分析'; }, 3000);
+    };
+
+    // 優先：使用已選取的專案資料夾 → 直接寫入 AI分析結果/ 子資料夾（無需另存視窗）
+    if (_projDirHandle) {
+        try {
+            const resultsDir = await _projDirHandle.getDirectoryHandle(AI_SAVE_FOLDER, { create: true });
+            const fh = await resultsDir.getFileHandle(filename, { create: true });
+            const writable = await fh.createWritable();
+            await writable.write(text);
+            await writable.close();
+            markSaved(`${AI_SAVE_FOLDER}/${filename}`);
+            return;
+        } catch(e) {
+            if (e.name === 'AbortError') return;
+            console.warn('直接儲存失敗，改用另存視窗：', e);
+            // fallthrough
+        }
+    }
+
+    // 次選：showSaveFilePicker（專案資料夾未選取時，開啟另存視窗）
     if (window.showSaveFilePicker) {
         try {
             const handle = await window.showSaveFilePicker({
@@ -674,16 +704,15 @@ async function saveAIToFile() {
             const writable = await handle.createWritable();
             await writable.write(text);
             await writable.close();
-            btn.textContent = '✅ 已儲存！';
-            setTimeout(() => { btn.textContent = '💾 儲存本週分析'; }, 2000);
+            markSaved(filename);
             return;
         } catch(e) {
-            if (e.name === 'AbortError') return; // 使用者取消，不做任何事
-            // 其他錯誤則 fallback 到 Blob 下載
+            if (e.name === 'AbortError') return;
+            // fallthrough to Blob
         }
     }
 
-    // Fallback：Blob 下載（Firefox / Safari / 舊版瀏覽器）
+    // Fallback：Blob 下載（Firefox / Safari）
     const blob = new Blob([text], { type: 'text/markdown;charset=utf-8' });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
@@ -691,9 +720,7 @@ async function saveAIToFile() {
     document.body.appendChild(a); a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-
-    btn.textContent = '✅ 已下載！';
-    setTimeout(() => { btn.textContent = '💾 儲存本週分析'; }, 2000);
+    markSaved(filename + '（下載）');
 }
 
 let _aiNoteTimer = null;
@@ -937,6 +964,7 @@ async function loadLatestAnalysis() {
         saveAINotes();
         setAIMode('view');
         setWorkflowStep(4, true);
+        setWorkflowStep(5, true);
 
         const loadBtn = document.querySelector('.ai-load-btn');
         if (loadBtn) {
