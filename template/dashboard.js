@@ -491,6 +491,10 @@ function initAITab() {
     }
     // 預設顯示「檢視」模式
     setAIMode('view');
+    // 初始化操作流程引導（記憶展開/收合狀態）
+    initWorkflowGuide();
+    // 若有記憶的資料夾名稱，顯示一鍵確認橫幅
+    loadRecallDir();
 }
 
 // 簡易 Markdown → HTML 轉換（支援 ##標題、**粗體**、- 列表、--- 分隔線、段落）
@@ -738,6 +742,115 @@ function saveAINotes() {
 
 let _projDirHandle = null;
 let _promptModified = false;
+let _pollTimer = null;
+let _requestGeneratedAt = null;
+
+// ── 操作流程引導：收合/展開 ──────────────────────────────
+function toggleWorkflowGuide() {
+    const wrap = document.getElementById('ai-wf-steps-wrap');
+    const icon = document.getElementById('ai-wf-toggle-icon');
+    const hint = document.querySelector('.ai-wf-toggle-hint');
+    if (!wrap) return;
+    const isOpen = wrap.style.display !== 'none';
+    wrap.style.display = isOpen ? 'none' : 'flex';
+    if (icon) icon.textContent = isOpen ? '▸' : '▾';
+    if (hint) hint.textContent = isOpen ? '點擊展開' : '熟悉後可收合';
+    localStorage.setItem('ai_wf_guide_open', isOpen ? '0' : '1');
+}
+
+function initWorkflowGuide() {
+    const saved = localStorage.getItem('ai_wf_guide_open');
+    if (saved === '0') {
+        const wrap = document.getElementById('ai-wf-steps-wrap');
+        const icon = document.getElementById('ai-wf-toggle-icon');
+        const hint = document.querySelector('.ai-wf-toggle-hint');
+        if (wrap) wrap.style.display = 'none';
+        if (icon) icon.textContent = '▸';
+        if (hint) hint.textContent = '點擊展開';
+    }
+}
+
+// ── 資料夾記憶：recall 橫幅 ────────────────────────────────
+function loadRecallDir() {
+    const savedName = localStorage.getItem('ai_proj_dir_name');
+    if (!savedName || _projDirHandle) return;
+    const bar   = document.getElementById('ai-recall-bar');
+    const label = document.getElementById('ai-recall-name');
+    if (!bar || !label) return;
+    label.textContent = savedName;
+    bar.style.display = 'flex';
+}
+
+async function confirmRecallDir() {
+    // Chrome 因 id:'wekan-project' 會自動導向上次目錄，使用者只需按「選取資料夾」
+    await pickProjectDirectory();
+    dismissRecallBar();
+}
+
+function dismissRecallBar() {
+    const bar = document.getElementById('ai-recall-bar');
+    if (bar) bar.style.display = 'none';
+}
+
+// ── 自動輪詢：偵測 Cowork 分析完成 ────────────────────────
+function startPolling() {
+    stopPolling();
+    if (!_projDirHandle) return;
+    const statusEl = document.getElementById('ai-request-status');
+    if (statusEl) {
+        statusEl.textContent = '⏳ 等待 Cowork 分析完成… (每 8 秒自動偵測)';
+        statusEl.style.color = '#888';
+    }
+    _pollTimer = setInterval(checkForNewAnalysis, 8000);
+}
+
+function stopPolling() {
+    if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+}
+
+async function checkForNewAnalysis() {
+    if (!_projDirHandle || !_requestGeneratedAt) return;
+    try {
+        const resultsDir = await _projDirHandle.getDirectoryHandle(AI_SAVE_FOLDER);
+        let latestFile = null, latestTime = 0;
+        for await (const [, handle] of resultsDir.entries()) {
+            if (handle.kind !== 'file') continue;
+            const file = await handle.getFile();
+            if (file.name.endsWith('.md') && file.lastModified > latestTime) {
+                latestTime = file.lastModified;
+                latestFile = file;
+            }
+        }
+        if (latestFile && latestFile.lastModified > _requestGeneratedAt.getTime()) {
+            stopPolling();
+            setWorkflowStep(3, true);
+            await _autoLoadFile(latestFile);
+        }
+    } catch(e) { /* 資料夾尚未存在，繼續等待 */ }
+}
+
+async function _autoLoadFile(file) {
+    const raw   = await file.text();
+    const lines = raw.split('\n');
+    const content = lines[0].startsWith('# AI 週報分析')
+        ? lines.slice(2).join('\n').trimStart()
+        : raw;
+    document.getElementById('ai-notes').value = content;
+    saveAINotes();
+    setAIMode('view');
+    setWorkflowStep(4, true);
+    setWorkflowStep(5, true);
+    const statusEl = document.getElementById('ai-request-status');
+    if (statusEl) {
+        statusEl.textContent = '✅ 偵測到新分析結果，已自動載入！';
+        statusEl.style.color = '#2e7d32';
+    }
+    const loadBtn = document.querySelector('.ai-load-btn');
+    if (loadBtn) {
+        loadBtn.textContent = '✅ 已自動載入';
+        setTimeout(() => { loadBtn.textContent = '🔄 載入最新'; }, 3000);
+    }
+}
 
 function initPromptEditor() {
     const ta = document.getElementById('ai-prompt-textarea');
@@ -812,6 +925,9 @@ async function pickProjectDirectory() {
         _projDirHandle = handle;
         updateDirBadge(isRoot ? 'ok' : 'warn', handle.name);
         setWorkflowStep(1, true);
+        // 記憶資料夾名稱供下次一鍵確認
+        localStorage.setItem('ai_proj_dir_name', handle.name);
+        dismissRecallBar();
         return _projDirHandle;
     } catch(e) {
         if (e.name !== 'AbortError') console.error('選擇資料夾失敗：', e);
@@ -907,6 +1023,8 @@ async function generateAIRequest() {
         await writable.close();
         setStatus('✅ 請求已產生！請切換到 Cowork 說「分析」', '#2e7d32');
         setWorkflowStep(2, true);
+        _requestGeneratedAt = new Date();
+        startPolling();
         if (btn) {
             btn.textContent = '🤖 請求已產生 ✅';
             setTimeout(() => { btn.textContent = '🤖 產生分析請求'; }, 4000);
