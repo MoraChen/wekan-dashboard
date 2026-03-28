@@ -2,7 +2,7 @@
 # Install: pip install -r requirements.txt
 #
 # Core scripts (update_dashboard.py, make_offline.py):
-#   No external dependencies — uses Python standard library only.
+jinja2>=3.1.0
 #
 # Wekan API sync (wekan_sync.py):
 requests>=2.28.0
