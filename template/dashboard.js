@@ -781,8 +781,66 @@ function loadRecallDir() {
     bar.style.display = 'flex';
 }
 
+// ── IndexedDB：持久化儲存 FileSystemDirectoryHandle ──────────
+const _IDB_NAME  = 'wekan_dashboard_v1';
+const _IDB_STORE = 'handles';
+
+function _idbOpen() {
+    return new Promise((resolve, reject) => {
+        const req = indexedDB.open(_IDB_NAME, 1);
+        req.onupgradeneeded = e => e.target.result.createObjectStore(_IDB_STORE);
+        req.onsuccess  = e  => resolve(e.target.result);
+        req.onerror    = () => reject(req.error);
+    });
+}
+
+async function _idbPutHandle(handle) {
+    try {
+        const db = await _idbOpen();
+        await new Promise((res, rej) => {
+            const tx = db.transaction(_IDB_STORE, 'readwrite');
+            tx.objectStore(_IDB_STORE).put(handle, 'project_dir');
+            tx.oncomplete = res;
+            tx.onerror = () => rej(tx.error);
+        });
+        db.close();
+    } catch(e) { console.warn('idb put failed', e); }
+}
+
+async function _idbGetHandle() {
+    try {
+        const db = await _idbOpen();
+        const handle = await new Promise((res, rej) => {
+            const tx  = db.transaction(_IDB_STORE, 'readonly');
+            const req = tx.objectStore(_IDB_STORE).get('project_dir');
+            req.onsuccess = () => res(req.result || null);
+            req.onerror   = () => rej(req.error);
+        });
+        db.close();
+        return handle;
+    } catch(e) { return null; }
+}
+
+// ── 一鍵確認：從 IndexedDB 恢復 handle，只需點擊「允許」 ─────
 async function confirmRecallDir() {
-    // Chrome 因 id:'wekan-project' 會自動導向上次目錄，使用者只需按「選取資料夾」
+    const handle = await _idbGetHandle();
+    if (handle && handle.requestPermission) {
+        try {
+            const perm = await handle.requestPermission({ mode: 'readwrite' });
+            if (perm === 'granted') {
+                let isRoot = false;
+                try { await handle.getFileHandle('update_dashboard.py'); isRoot = true; } catch(e) {}
+                _projDirHandle = handle;
+                updateDirBadge(isRoot ? 'ok' : 'warn', handle.name);
+                setWorkflowStep(1, true);
+                localStorage.setItem('ai_proj_dir_name', handle.name);
+                dismissRecallBar();
+                _loadPromptMeta().then(meta => { if (meta) _renderPromptMeta(meta); });
+                return;
+            }
+        } catch(e) { console.warn('requestPermission 失敗，改用 picker', e); }
+    }
+    // Fallback：IndexedDB 無紀錄或授權失敗，開啟完整選取器
     await pickProjectDirectory();
     dismissRecallBar();
 }
@@ -925,9 +983,12 @@ async function pickProjectDirectory() {
         _projDirHandle = handle;
         updateDirBadge(isRoot ? 'ok' : 'warn', handle.name);
         setWorkflowStep(1, true);
-        // 記憶資料夾名稱供下次一鍵確認
+        // 記憶資料夾名稱（localStorage）+ handle 本體（IndexedDB）
         localStorage.setItem('ai_proj_dir_name', handle.name);
+        _idbPutHandle(handle);  // 供下次一鍵確認用
         dismissRecallBar();
+        // 讀取 prompt 版本 meta
+        _loadPromptMeta().then(meta => { if (meta) _renderPromptMeta(meta); });
         return _projDirHandle;
     } catch(e) {
         if (e.name !== 'AbortError') console.error('選擇資料夾失敗：', e);
@@ -955,6 +1016,58 @@ async function ensureDirHandle() {
     return await pickProjectDirectory();
 }
 
+// ── Prompt 版本追蹤 ─────────────────────────────────────────
+function _fmtDT(date) {
+    const p = n => String(n).padStart(2,'0');
+    return `${date.getFullYear()}-${p(date.getMonth()+1)}-${p(date.getDate())} ${p(date.getHours())}:${p(date.getMinutes())}`;
+}
+
+async function _loadPromptMeta() {
+    if (!_projDirHandle) return null;
+    try {
+        const fh   = await _projDirHandle.getFileHandle('ai_prompt_meta.json');
+        const file = await fh.getFile();
+        return JSON.parse(await file.text());
+    } catch(e) { return null; }
+}
+
+async function _savePromptMeta(meta) {
+    if (!_projDirHandle) return;
+    try {
+        const fh = await _projDirHandle.getFileHandle('ai_prompt_meta.json', { create: true });
+        const w  = await fh.createWritable();
+        await w.write(JSON.stringify(meta, null, 2));
+        await w.close();
+    } catch(e) { console.warn('儲存 prompt meta 失敗', e); }
+}
+
+function _renderPromptMeta(meta) {
+    const badge  = document.getElementById('ai-prompt-meta');
+    const hBtn   = document.getElementById('ai-prompt-history-btn');
+    const hPanel = document.getElementById('ai-prompt-history-panel');
+    if (!meta || !badge) return;
+    badge.textContent = `v${meta.version} · 上次修改：${meta.saved_at}`;
+    badge.style.display = 'inline-flex';
+    if (hBtn) hBtn.style.display = 'inline-flex';
+    if (hPanel && meta.history && meta.history.length > 0) {
+        // 版次從 (version - history.length + 1) 開始
+        const startV = meta.version - meta.history.length + 1;
+        hPanel.innerHTML = meta.history.map((t, i) =>
+            `<div class="ai-ph-row ${i === meta.history.length-1 ? 'ai-ph-current' : ''}">` +
+            `<span class="ai-ph-ver">v${startV + i}</span>` +
+            `<span class="ai-ph-time">${t}</span>` +
+            `${i === meta.history.length-1 ? '<span class="ai-ph-tag">目前</span>' : ''}` +
+            `</div>`
+        ).reverse().join('');  // 最新在最上方
+    }
+}
+
+function togglePromptHistory() {
+    const panel = document.getElementById('ai-prompt-history-panel');
+    if (!panel) return;
+    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+}
+
 async function savePromptTemplate() {
     const ta = document.getElementById('ai-prompt-textarea');
     if (!ta) return;
@@ -962,15 +1075,43 @@ async function savePromptTemplate() {
     const dir = await ensureDirHandle();
     if (!dir) return;
     try {
+        // ① 儲存 prompt 本體（ai_prompt_template.md）
         const fh = await dir.getFileHandle('ai_prompt_template.md', { create: true });
-        const writable = await fh.createWritable();
-        await writable.write(content);
-        await writable.close();
+        const w  = await fh.createWritable();
+        await w.write(content);
+        await w.close();
         _promptModified = false;
+
+        // ② 更新版本 meta
+        const nowDT = new Date();
+        const now   = _fmtDT(nowDT);
+        const prev  = await _loadPromptMeta() || { version: 0, history: [] };
+        const meta  = {
+            version: prev.version + 1,
+            saved_at: now,
+            history: [...(prev.history || []).slice(-19), now]
+        };
+        await _savePromptMeta(meta);
+        _renderPromptMeta(meta);
+
+        // ③ 儲存版本快照到 AI prompt/ 子資料夾
+        const pad = n => String(n).padStart(2, '0');
+        const ts  = `${nowDT.getFullYear()}${pad(nowDT.getMonth()+1)}${pad(nowDT.getDate())}` +
+                    `_${pad(nowDT.getHours())}${pad(nowDT.getMinutes())}`;
+        const snapFilename = `prompt_v${meta.version}_${ts}.md`;
+        const snapHeader   = `# Prompt v${meta.version} · ${now}\n\n`;
+        try {
+            const promptDir = await dir.getDirectoryHandle('AI prompt', { create: true });
+            const sfh = await promptDir.getFileHandle(snapFilename, { create: true });
+            const sw  = await sfh.createWritable();
+            await sw.write(snapHeader + content);
+            await sw.close();
+        } catch(e) { console.warn('版本快照寫入失敗：', e); }
+
         const btn = document.querySelector('.ai-prompt-btn-save');
         if (btn) {
-            btn.textContent = '✅ 已儲存！';
-            setTimeout(() => { btn.textContent = '💾 儲存 Prompt 到本機'; }, 2000);
+            btn.textContent = `✅ 已儲存（v${meta.version}）`;
+            setTimeout(() => { btn.textContent = '💾 儲存 Prompt 到本機'; }, 2500);
         }
     } catch(e) {
         alert('儲存 Prompt 失敗：' + e.message);
