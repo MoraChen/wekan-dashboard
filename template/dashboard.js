@@ -649,12 +649,22 @@ function _buildAISaveFilename() {
     return `${AI_FILENAME_PREFIX}_${dateStr}_${timeStr}.md`;
 }
 
-function _buildAISaveContent(filename) {
+function _buildAISaveContent(filename, promptMeta) {
     const raw = document.getElementById('ai-notes').value;
     // 從檔名解析日期時間顯示
     const m = filename.match(/_(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})/);
     const stamp = m ? `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}` : '';
-    return `# AI 週報分析  ${stamp}\n\n${raw}`;
+    // 附加 Prompt 版本資訊頁尾（供後續比較哪個 Prompt 版本產出最好）
+    let footer = '';
+    if (promptMeta && promptMeta.version) {
+        const parts = (promptMeta.saved_at || '').split(' ');
+        const snapTs = parts.length === 2
+            ? parts[0].replace(/-/g, '') + '_' + parts[1].replace(/:/g, '')
+            : '';
+        const snapFile = snapTs ? `prompt_v${promptMeta.version}_${snapTs}.md` : `prompt_v${promptMeta.version}.md`;
+        footer = `\n\n---\n> **使用 Prompt 版本**：v${promptMeta.version} · 上次修改：${promptMeta.saved_at || '—'} · 快照檔：\`AI prompt/${snapFile}\``;
+    }
+    return `# AI 週報分析  ${stamp}\n\n${raw}${footer}`;
 }
 
 async function saveAIToFile() {
@@ -664,9 +674,10 @@ async function saveAIToFile() {
         return;
     }
 
-    const btn      = document.getElementById('ai-save-btn');
-    const filename = _buildAISaveFilename();
-    const text     = _buildAISaveContent(filename);
+    const btn        = document.getElementById('ai-save-btn');
+    const filename   = _buildAISaveFilename();
+    const promptMeta = await _loadPromptMeta();          // 讀取 Prompt 版本資訊（可為 null）
+    const text       = _buildAISaveContent(filename, promptMeta);
 
     const markSaved = (label) => {
         setWorkflowStep(6, true);
@@ -771,14 +782,23 @@ function initWorkflowGuide() {
 }
 
 // ── 資料夾記憶：recall 橫幅 ────────────────────────────────
-function loadRecallDir() {
+async function loadRecallDir() {
     const savedName = localStorage.getItem('ai_proj_dir_name');
     if (!savedName || _projDirHandle) return;
     const bar   = document.getElementById('ai-recall-bar');
     const label = document.getElementById('ai-recall-name');
     if (!bar || !label) return;
     label.textContent = savedName;
+    // 先顯示 bar，再非同步判斷 IDB 是否有 handle
     bar.style.display = 'flex';
+    const confirmBtn = bar.querySelector('.ai-recall-confirm');
+    if (confirmBtn) confirmBtn.textContent = '⏳ 檢查中…';
+    const idbHandle = await _idbGetHandle();
+    if (idbHandle) {
+        if (confirmBtn) confirmBtn.textContent = '✅ 一鍵確認使用';
+    } else {
+        if (confirmBtn) confirmBtn.textContent = '📁 首次設定：選取資料夾';
+    }
 }
 
 // ── IndexedDB：持久化儲存 FileSystemDirectoryHandle ──────────
@@ -823,9 +843,17 @@ async function _idbGetHandle() {
 
 // ── 一鍵確認：從 IndexedDB 恢復 handle，只需點擊「允許」 ─────
 async function confirmRecallDir() {
+    const bar = document.getElementById('ai-recall-bar');
+    const confirmBtn = bar ? bar.querySelector('.ai-recall-confirm') : null;
+
     const handle = await _idbGetHandle();
     if (handle && handle.requestPermission) {
         try {
+            // 顯示等待中狀態
+            if (confirmBtn) {
+                confirmBtn.textContent = '⏳ 等待 Chrome 授權…';
+                confirmBtn.disabled = true;
+            }
             const perm = await handle.requestPermission({ mode: 'readwrite' });
             if (perm === 'granted') {
                 let isRoot = false;
@@ -837,10 +865,28 @@ async function confirmRecallDir() {
                 dismissRecallBar();
                 _loadPromptMeta().then(meta => { if (meta) _renderPromptMeta(meta); });
                 return;
+            } else {
+                // 使用者在 Chrome 彈窗點了「拒絕」
+                if (confirmBtn) {
+                    confirmBtn.textContent = '⛔ 已拒絕，1.5 秒後重新選擇…';
+                    confirmBtn.disabled = false;
+                }
+                setTimeout(async () => {
+                    await pickProjectDirectory();
+                    dismissRecallBar();
+                }, 1500);
+                return;
             }
-        } catch(e) { console.warn('requestPermission 失敗，改用 picker', e); }
+        } catch(e) {
+            console.warn('requestPermission 失敗，改用 picker', e);
+            if (confirmBtn) confirmBtn.disabled = false;
+        }
     }
-    // Fallback：IndexedDB 無紀錄或授權失敗，開啟完整選取器
+    // Fallback：IndexedDB 無紀錄（首次使用）或授權失敗，開啟完整選取器
+    if (confirmBtn) {
+        confirmBtn.textContent = '📁 選取資料夾中…';
+        confirmBtn.disabled = true;
+    }
     await pickProjectDirectory();
     dismissRecallBar();
 }
