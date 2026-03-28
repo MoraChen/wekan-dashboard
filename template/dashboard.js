@@ -733,14 +733,58 @@ function onPromptInput() {
     _promptModified = true;
 }
 
+// ── 步驟狀態追蹤 ──────────────────────────────────────────
+const _wfStepDone = { 1: false, 2: false, 4: false };
+
+function setWorkflowStep(step, done) {
+    _wfStepDone[step] = done;
+    const el = document.getElementById('wf-status-' + step);
+    if (!el) return;
+    if (done) {
+        el.textContent = '✅';
+        el.className = 'ai-wf-status done';
+    } else {
+        el.textContent = '⬜';
+        el.className = 'ai-wf-status';
+    }
+    // 步驟 2 完成 → 步驟 3 顯示「等待中」提示
+    if (step === 2) {
+        const s3 = document.getElementById('wf-status-3');
+        if (s3) {
+            s3.textContent = done ? '⏳' : '⬜';
+            s3.className = done ? 'ai-wf-status waiting' : 'ai-wf-status';
+        }
+    }
+}
+
 async function pickProjectDirectory() {
     if (!window.showDirectoryPicker) {
         alert('⚠️ 您的瀏覽器不支援 File System Access API。\n請使用 Chrome 或 Edge 開啟儀表板。');
         return null;
     }
     try {
-        _projDirHandle = await window.showDirectoryPicker({ mode: 'readwrite', id: 'wekan-project' });
-        updateDirBadge(true, _projDirHandle.name);
+        const handle = await window.showDirectoryPicker({ mode: 'readwrite', id: 'wekan-project' });
+        // 驗證是否為專案根目錄（尋找 update_dashboard.py）
+        let isRoot = false;
+        try {
+            await handle.getFileHandle('update_dashboard.py');
+            isRoot = true;
+        } catch(e) { /* 不在根目錄 */ }
+
+        if (!isRoot) {
+            const ok = confirm(
+                `⚠️ 這個資料夾可能不是專案根目錄！\n\n` +
+                `您選的是：「${handle.name}」\n` +
+                `找不到 update_dashboard.py。\n\n` +
+                `正確作法：請選擇「0.進度儀錶板with AI」本身，\n` +
+                `不要選進去的子資料夾（如「AI prompt」）。\n\n` +
+                `確定要使用此資料夾嗎？`
+            );
+            if (!ok) return null;
+        }
+        _projDirHandle = handle;
+        updateDirBadge(isRoot ? 'ok' : 'warn', handle.name);
+        setWorkflowStep(1, true);
         return _projDirHandle;
     } catch(e) {
         if (e.name !== 'AbortError') console.error('選擇資料夾失敗：', e);
@@ -748,11 +792,19 @@ async function pickProjectDirectory() {
     }
 }
 
-function updateDirBadge(ok, name) {
+function updateDirBadge(state, name) {
     const badge = document.getElementById('ai-dir-badge');
     if (!badge) return;
-    badge.textContent = ok ? `✅ ${name}` : '📁 尚未選擇資料夾';
-    badge.style.color  = ok ? '#2e7d32' : '#888';
+    if (state === 'ok') {
+        badge.textContent = `✅ ${name}`;
+        badge.style.color = '#2e7d32';
+    } else if (state === 'warn') {
+        badge.textContent = `⚠️ ${name}（非根目錄？）`;
+        badge.style.color = '#e65100';
+    } else {
+        badge.textContent = '📁 尚未選擇資料夾';
+        badge.style.color = '#888';
+    }
 }
 
 async function ensureDirHandle() {
@@ -827,6 +879,7 @@ async function generateAIRequest() {
         await writable.write(JSON.stringify(requestObj, null, 2));
         await writable.close();
         setStatus('✅ 請求已產生！請切換到 Cowork 說「分析」', '#2e7d32');
+        setWorkflowStep(2, true);
         if (btn) {
             btn.textContent = '🤖 請求已產生 ✅';
             setTimeout(() => { btn.textContent = '🤖 產生分析請求'; }, 4000);
@@ -845,7 +898,15 @@ async function loadLatestAnalysis() {
         try {
             resultsDir = await dir.getDirectoryHandle(AI_SAVE_FOLDER);
         } catch(e) {
-            alert(`找不到「${AI_SAVE_FOLDER}」資料夾。\n請確認資料夾已存在於專案目錄中。`);
+            alert(
+                `找不到「${AI_SAVE_FOLDER}」資料夾。\n\n` +
+                `目前選取的資料夾是：「${dir.name}」\n\n` +
+                `請確認：\n` +
+                `① 步驟一有選取「0.進度儀錶板with AI」根目錄\n` +
+                `  （不要選子資料夾，如「AI prompt」）\n` +
+                `② 點「⚙️ Prompt 設定」→「📁 選擇專案資料夾」重新選取\n` +
+                `③ 確認根目錄下有「${AI_SAVE_FOLDER}」資料夾`
+            );
             return;
         }
 
@@ -875,6 +936,7 @@ async function loadLatestAnalysis() {
         document.getElementById('ai-notes').value = content;
         saveAINotes();
         setAIMode('view');
+        setWorkflowStep(4, true);
 
         const loadBtn = document.querySelector('.ai-load-btn');
         if (loadBtn) {

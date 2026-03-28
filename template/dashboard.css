@@ -587,6 +587,48 @@
         }
         .ai-load-btn:hover { background:#ddeeff; }
 
+        /* ── 操作流程引導 ── */
+        .ai-workflow-guide {
+            background:#f0f7ff; border:1px solid #c0d8f0; border-radius:8px;
+            padding:10px 16px; margin-bottom:14px;
+        }
+        .ai-wf-title {
+            font-size:0.8em; font-weight:700; color:#1a4f7a;
+            margin-bottom:8px; letter-spacing:0.02em;
+        }
+        .ai-wf-steps {
+            display:flex; align-items:flex-start; gap:6px; flex-wrap:wrap;
+        }
+        .ai-wf-arrow {
+            font-size:1.1em; color:#90b8d8; margin-top:10px; flex-shrink:0;
+        }
+        .ai-wf-step {
+            display:flex; align-items:flex-start; gap:7px;
+            background:#fff; border:1px solid #d0e6f8; border-radius:7px;
+            padding:7px 10px; min-width:160px; flex:1; max-width:230px;
+        }
+        .ai-wf-num {
+            width:20px; height:20px; border-radius:50%; background:#1a6cbf;
+            color:#fff; font-size:0.75em; font-weight:700;
+            display:flex; align-items:center; justify-content:center;
+            flex-shrink:0; margin-top:1px;
+        }
+        .ai-wf-content {
+            display:flex; flex-direction:column; gap:2px; flex:1; min-width:0;
+        }
+        .ai-wf-content strong { font-size:0.82em; color:#1a3a5c; line-height:1.3; }
+        .ai-wf-detail { font-size:0.72em; color:#556; line-height:1.4; }
+        .ai-wf-detail code {
+            background:#e8f2ff; color:#1a4f7a; padding:0 3px;
+            border-radius:3px; font-size:1em;
+        }
+        .ai-wf-status {
+            font-size:1em; flex-shrink:0; margin-top:1px;
+            transition:all 0.2s;
+        }
+        .ai-wf-status.waiting { animation:pulse-icon 1.2s ease-in-out infinite; }
+        @keyframes pulse-icon { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
         /* ── 🏆 成果亮點 Tab ── */
         .ms-filter-bar {
             display:flex; align-items:center; gap:10px; flex-wrap:wrap;
