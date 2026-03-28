@@ -38,6 +38,20 @@ if os.path.exists(_ai_cfg_path):
     except Exception as _e:
         print(f"⚠️  ai_analysis_config.yaml 讀取失敗，使用預設值：{_e}")
 
+# ── 讀取 AI Prompt 模板（ai_prompt_template.md） ─────────
+_ai_prompt_path = os.path.join(BASE_DIR, "ai_prompt_template.md")
+_DEFAULT_PROMPT = (
+    "你是一位週報分析顧問，請根據以下 Wekan 看板資料，以繁體中文產出本週進度分析。\n"
+    "分析基準日：{{TODAY}}\n\n{{WEKAN_DATA}}"
+)
+try:
+    with open(_ai_prompt_path, "r", encoding="utf-8") as _pf:
+        AI_PROMPT_TEMPLATE = _pf.read()
+except FileNotFoundError:
+    AI_PROMPT_TEMPLATE = _DEFAULT_PROMPT
+    print("⚠️  ai_prompt_template.md 不存在，使用預設 prompt。")
+AI_PROMPT_TEMPLATE_JSON = json.dumps(AI_PROMPT_TEMPLATE)
+
 # ── 找最新 JSON ─────────────────────────────────────────
 json_files = sorted(glob.glob(os.path.join(JSON_DIR, "*.json")), key=os.path.getmtime, reverse=True)
 if not json_files:
@@ -473,6 +487,7 @@ html = template.render(
     act_group_order_json     = ACT_GROUP_ORDER_JSON,
     ai_save_folder           = AI_SAVE_FOLDER,
     ai_filename_prefix       = AI_FILENAME_PREFIX,
+    ai_prompt_template_json  = AI_PROMPT_TEMPLATE_JSON,
     wekan_card_url_base      = WEKAN_CARD_URL_BASE,
     today_display_json       = TODAY_DISPLAY_JSON,
     due_soon_end_json        = DUE_SOON_END_JSON,

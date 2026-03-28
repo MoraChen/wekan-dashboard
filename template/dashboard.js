@@ -707,6 +707,185 @@ function saveAINotes() {
     }, 500);
 }
 
+// ==================== AI Prompt 設定 & 資料夾橋接 ====================
+
+let _projDirHandle = null;
+let _promptModified = false;
+
+function initPromptEditor() {
+    const ta = document.getElementById('ai-prompt-textarea');
+    if (ta && !ta.value) {
+        ta.value = typeof AI_PROMPT_TEMPLATE !== 'undefined' ? AI_PROMPT_TEMPLATE : '';
+    }
+}
+
+function togglePromptSection() {
+    const body = document.getElementById('ai-prompt-section-body');
+    const icon = document.getElementById('ai-prompt-toggle-icon');
+    if (!body) return;
+    const isOpen = body.style.display !== 'none';
+    body.style.display = isOpen ? 'none' : 'block';
+    if (icon) icon.textContent = isOpen ? '▸' : '▾';
+    if (!isOpen) initPromptEditor();
+}
+
+function onPromptInput() {
+    _promptModified = true;
+}
+
+async function pickProjectDirectory() {
+    if (!window.showDirectoryPicker) {
+        alert('⚠️ 您的瀏覽器不支援 File System Access API。\n請使用 Chrome 或 Edge 開啟儀表板。');
+        return null;
+    }
+    try {
+        _projDirHandle = await window.showDirectoryPicker({ mode: 'readwrite', id: 'wekan-project' });
+        updateDirBadge(true, _projDirHandle.name);
+        return _projDirHandle;
+    } catch(e) {
+        if (e.name !== 'AbortError') console.error('選擇資料夾失敗：', e);
+        return null;
+    }
+}
+
+function updateDirBadge(ok, name) {
+    const badge = document.getElementById('ai-dir-badge');
+    if (!badge) return;
+    badge.textContent = ok ? `✅ ${name}` : '📁 尚未選擇資料夾';
+    badge.style.color  = ok ? '#2e7d32' : '#888';
+}
+
+async function ensureDirHandle() {
+    if (_projDirHandle) return _projDirHandle;
+    return await pickProjectDirectory();
+}
+
+async function savePromptTemplate() {
+    const ta = document.getElementById('ai-prompt-textarea');
+    if (!ta) return;
+    const content = ta.value;
+    const dir = await ensureDirHandle();
+    if (!dir) return;
+    try {
+        const fh = await dir.getFileHandle('ai_prompt_template.md', { create: true });
+        const writable = await fh.createWritable();
+        await writable.write(content);
+        await writable.close();
+        _promptModified = false;
+        const btn = document.querySelector('.ai-prompt-btn-save');
+        if (btn) {
+            btn.textContent = '✅ 已儲存！';
+            setTimeout(() => { btn.textContent = '💾 儲存 Prompt 到本機'; }, 2000);
+        }
+    } catch(e) {
+        alert('儲存 Prompt 失敗：' + e.message);
+    }
+}
+
+function getCurrentPrompt() {
+    const ta = document.getElementById('ai-prompt-textarea');
+    if (ta && ta.value) return ta.value;
+    return typeof AI_PROMPT_TEMPLATE !== 'undefined' ? AI_PROMPT_TEMPLATE : '';
+}
+
+async function generateAIRequest() {
+    const statusEl = document.getElementById('ai-request-status');
+    const btn = document.querySelector('.ai-action-primary');
+    const setStatus = (msg, color) => {
+        if (statusEl) { statusEl.textContent = msg; statusEl.style.color = color || '#555'; }
+    };
+
+    setStatus('⏳ 正在準備…', '#888');
+    const dir = await ensureDirHandle();
+    if (!dir) { setStatus('❌ 請先選擇專案資料夾', '#c62828'); return; }
+
+    const now  = new Date();
+    const pad  = n => String(n).padStart(2, '0');
+    const today = `${now.getFullYear()}/${pad(now.getMonth()+1)}/${pad(now.getDate())}`;
+    const ts    = `${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
+
+    const template  = getCurrentPrompt();
+    const wekanData = buildAICopyText();
+    const fullPrompt = template
+        .replace('{{TODAY}}', today)
+        .replace('{{WEKAN_DATA}}', wekanData);
+
+    const requestObj = {
+        generated_at:    now.toISOString(),
+        today:           today,
+        prompt:          fullPrompt,
+        prompt_template: template,
+        data_only:       wekanData,
+        output_filename: `${AI_FILENAME_PREFIX}_${ts}.md`,
+        output_folder:   AI_SAVE_FOLDER,
+        ready:           true
+    };
+
+    try {
+        const fh = await dir.getFileHandle('ai_request.json', { create: true });
+        const writable = await fh.createWritable();
+        await writable.write(JSON.stringify(requestObj, null, 2));
+        await writable.close();
+        setStatus('✅ 請求已產生！請切換到 Cowork 說「分析」', '#2e7d32');
+        if (btn) {
+            btn.textContent = '🤖 請求已產生 ✅';
+            setTimeout(() => { btn.textContent = '🤖 產生分析請求'; }, 4000);
+        }
+    } catch(e) {
+        setStatus('❌ 寫入失敗：' + e.message, '#c62828');
+    }
+}
+
+async function loadLatestAnalysis() {
+    const dir = await ensureDirHandle();
+    if (!dir) return;
+
+    try {
+        let resultsDir;
+        try {
+            resultsDir = await dir.getDirectoryHandle(AI_SAVE_FOLDER);
+        } catch(e) {
+            alert(`找不到「${AI_SAVE_FOLDER}」資料夾。\n請確認資料夾已存在於專案目錄中。`);
+            return;
+        }
+
+        let latestFile = null;
+        let latestTime = 0;
+        for await (const [name, handle] of resultsDir.entries()) {
+            if (handle.kind === 'file' && name.endsWith('.md')) {
+                const file = await handle.getFile();
+                if (file.lastModified > latestTime) {
+                    latestTime = file.lastModified;
+                    latestFile = file;
+                }
+            }
+        }
+
+        if (!latestFile) {
+            alert(`「${AI_SAVE_FOLDER}」資料夾中尚無 .md 分析檔案。`);
+            return;
+        }
+
+        const raw   = await latestFile.text();
+        const lines = raw.split('\n');
+        const content = lines[0].startsWith('# AI 週報分析')
+            ? lines.slice(2).join('\n').trimStart()
+            : raw;
+
+        document.getElementById('ai-notes').value = content;
+        saveAINotes();
+        setAIMode('view');
+
+        const loadBtn = document.querySelector('.ai-load-btn');
+        if (loadBtn) {
+            loadBtn.textContent = `✅ 已載入 ${latestFile.name}`;
+            setTimeout(() => { loadBtn.textContent = '🔄 載入最新'; }, 3000);
+        }
+    } catch(e) {
+        alert('載入分析結果失敗：' + e.message);
+    }
+}
+
 // ==================== Sub-Tab Switch ====================
 
 // 需求 #4: 展開/折疊父任務組

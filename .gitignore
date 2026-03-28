@@ -19,8 +19,12 @@ wekan json/
 # 含組織名稱與成員資料的操作說明
 CLAUDE.md
 
+# 工作流再現指南（含內部架構決策與踩坑記錄）
+PLAYBOOK.md
+
 # 含系統名稱的最新版儀表板規格文件（SDD）
 Task_dashboard_v6_SDD.md
+Task_dashboard_v7_SDD.md
 
 # 含真實專案名稱的變更紀錄
 Changelog.md
@@ -43,6 +47,15 @@ AI分析結果/
 
 # AI 分析個人設定（可能含使用者本機路徑）
 ai_analysis_config.yaml
+
+# AI 分析橋接觸發檔（含完整看板資料，屬機敏內容）
+ai_request.json
+
+# AI Prompt 模板（含使用者自訂指令與分析策略）
+ai_prompt_template.md
+
+# 資安規範文件（含內部風險說明）
+資安風險規範.md
 
 # 含組織資訊的新版規格文件
 Task_dashboard_v7.md
