@@ -2,6 +2,8 @@
 # 產出檔案（可由腳本重新產出）
 # ==========================================
 *.html
+# 但 Prompt 分析網頁是靜態工具，允許上傳
+!"AI prompt/prompt_analysis.html"
 
 # ==========================================
 # 🔴 敏感資料 — 絕對不上傳
@@ -59,6 +61,15 @@ ai_prompt_template.md
 
 # 資安規範文件（含內部風險說明）
 資安風險規範.md
+
+# Wekan 週報摘要（含卡片標題與成員名稱，屬機敏內容）
+wekan_weekly_summary.md
+
+# 執行 log 檔（本機運作記錄，每次自動覆寫）
+*.log
+weekly_filter_log.txt
+sync_auto_log.txt
+sync_log.txt
 
 # 含組織資訊的所有版本規格文件（舊式無 _SDD 後綴）
 # wildcard 涵蓋 Task_dashboard.md、Task_dashboard_v1.md … 至 Task_dashboard_v7.md 等
