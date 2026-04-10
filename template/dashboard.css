@@ -561,6 +561,37 @@
         }
         #ai-prompt-textarea:focus { border-color:#5a9fd4; }
 
+        /* ── Prompt 版本追蹤 ── */
+        .ai-prompt-meta-badge {
+            display:inline-flex; align-items:center;
+            font-size:0.75em; color:#2e6b2e; background:#edfaed;
+            border:1px solid #b8dbb8; border-radius:4px;
+            padding:2px 8px; white-space:nowrap; font-weight:600;
+        }
+        .ai-prompt-history-toggle {
+            font-size:0.75em; padding:2px 8px; border-radius:4px;
+            border:1px solid #c8d8e8; background:#f5f9ff;
+            color:#1a4f7a; cursor:pointer; white-space:nowrap;
+        }
+        .ai-prompt-history-toggle:hover { background:#e8f2ff; }
+        .ai-prompt-history-panel {
+            background:#fafcff; border:1px solid #d0e4f4;
+            border-radius:6px; padding:8px 12px; margin:6px 0 4px;
+            font-size:0.78em; max-height:180px; overflow-y:auto;
+        }
+        .ai-ph-row {
+            display:flex; align-items:center; gap:10px;
+            padding:4px 0; border-bottom:1px solid #e8f0f8;
+        }
+        .ai-ph-row:last-child { border-bottom:none; }
+        .ai-ph-row.ai-ph-current { background:#f0fff0; border-radius:4px; padding:4px 6px; }
+        .ai-ph-ver { font-weight:700; color:#1a6cbf; width:30px; flex-shrink:0; }
+        .ai-ph-time { color:#555; flex:1; }
+        .ai-ph-tag {
+            font-size:0.85em; background:#2e7d32; color:#fff;
+            border-radius:3px; padding:1px 5px;
+        }
+
         /* ── AI 產生請求 / 載入結果 ── */
         .ai-action-bar {
             padding:10px 12px; border-top:1px solid #e0ecf8;
