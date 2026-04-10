@@ -90,3 +90,9 @@ __pycache__/
 
 # Claude Code 本機設定（機器專屬，不共用）
 .claude/settings.local.json
+
+# Claude Preview 開發伺服器設定（本機路徑，不共用）
+.claude/launch.json
+
+# Changelog 視覺化工具（本機輔助腳本，產出已由 *.html 排除）
+generate_changelog_html.py
