@@ -1521,11 +1521,11 @@ function _renderNDCompareIfNeeded(tabN) {
 
     const newCards = cards.filter(c => {
         const ct = c.createdAt ? new Date(c.createdAt) : null;
-        return ct && ct >= startDt && ct <= endDt && !c.archived;
+        return ct && ct >= startDt && ct <= endDt && !c.archived && !FOCUS_EXCLUDE.includes(c.list);
     });
     const doneCards = cards.filter(c => {
         const et = c.endAt ? new Date(c.endAt) : null;
-        return c.isDone && et && et >= startDt && et <= endDt;
+        return c.isDone && et && et >= startDt && et <= endDt && !FOCUS_EXCLUDE.includes(c.list);
     });
 
     const wrap = document.getElementById('t' + tabN + '-nd-cmp-wrap');
@@ -2503,7 +2503,7 @@ function renderNewDone1(cards, startDt, endDt) {
     // 本週新增／完成／有異動：三欄並排
     const newCards = sortBySwim(cards.filter(c => {
         const ct = new Date(c.createdAt);
-        return ct >= startDt && ct <= endDt;
+        return ct >= startDt && ct <= endDt && !FOCUS_EXCLUDE.includes(c.list);
     }));
     let newHtml = '';
     newCards.forEach(c => {
@@ -2519,7 +2519,7 @@ function renderNewDone1(cards, startDt, endDt) {
 
     const doneCards = sortBySwim(cards.filter(c => {
         const et = c.endAt ? new Date(c.endAt) : null;
-        return c.isDone && et && et >= startDt && et <= endDt;
+        return c.isDone && et && et >= startDt && et <= endDt && !FOCUS_EXCLUDE.includes(c.list);
     }));
     let doneHtml = '';
     doneCards.forEach(c => {
@@ -2838,7 +2838,7 @@ function renderNewDone2(cards, startDt, endDt) {
     // 需求 #5: 本週新增／完成：左右並排扁平，按專案排序
     const newCards = sortBySwim(cards.filter(c => {
         const ct = new Date(c.createdAt);
-        return ct >= startDt && ct <= endDt;
+        return ct >= startDt && ct <= endDt && !FOCUS_EXCLUDE.includes(c.list);
     }));
     let newHtml = '';
     newCards.forEach(c => {
@@ -2854,7 +2854,7 @@ function renderNewDone2(cards, startDt, endDt) {
 
     const doneCards = sortBySwim(cards.filter(c => {
         const et = c.endAt ? new Date(c.endAt) : null;
-        return c.isDone && et && et >= startDt && et <= endDt;
+        return c.isDone && et && et >= startDt && et <= endDt && !FOCUS_EXCLUDE.includes(c.list);
     }));
     let doneHtml = '';
     doneCards.forEach(c => {

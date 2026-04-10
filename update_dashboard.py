@@ -371,6 +371,7 @@ for c in data["cards"]:
 
 # ── AI 分析 Tab 資料（本週新增 / 完成 / 風險 / Doing）────
 _risk_exclude_set = set(_risk_exclude)
+_focus_exclude_set = set(_focus_exclude)
 
 _ai_new = [
     {"swimlane": r["swimlane"], "title": r["title"],
@@ -379,6 +380,7 @@ _ai_new = [
     for r in card_records
     if r["createdAt"] and parse_dt(r["createdAt"]) and parse_dt(r["createdAt"]) >= WEEK_START
     and not r["archived"]
+    and r["list"] not in _focus_exclude_set
 ]
 _ai_done = [
     {"swimlane": r["swimlane"], "title": r["title"],
@@ -386,6 +388,7 @@ _ai_done = [
      "desc": r["description_summary"]}
     for r in card_records
     if r["isDone"] and r["endAt"] and parse_dt(r["endAt"]) and parse_dt(r["endAt"]) >= WEEK_START
+    and r["list"] not in _focus_exclude_set
 ]
 _ai_risk = [
     {"swimlane": r["swimlane"], "title": r["title"],
