@@ -87,3 +87,6 @@ __pycache__/
 *.swp
 *.swo
 .env
+
+# Claude Code 本機設定（機器專屬，不共用）
+.claude/settings.local.json
