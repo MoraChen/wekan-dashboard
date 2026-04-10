@@ -2007,12 +2007,14 @@ function applyFilters2() {
 }
 
 // ==================== Card Link Helper ====================
+// Wekan card URL 格式（2026-04 確認）：{baseUrl}/{cardId}，無 /c/ 前綴
+// 完整格式：https://{server}/b/{boardId}/{boardSlug}/{cardId}
 
 function cardLink(id, title) {
     if (!WEKAN_URL_BASE) {
         return `<span style="font-weight:500">${title}</span>`;
     }
-    return `<a href="${WEKAN_URL_BASE}/c/${id}" target="_blank" class="card-link" onclick="event.stopPropagation()">${title}</a>`;
+    return `<a href="${WEKAN_URL_BASE}/${id}" target="_blank" class="card-link" onclick="event.stopPropagation()">${title}</a>`;
 }
 
 // 改動 B4: updateTabBadges1 和 updateTabBadges2
