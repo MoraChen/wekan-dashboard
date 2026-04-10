@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>週報儀表板 · 演進時間軸</title>
+  <meta name="description" content="Wekan 週報儀表板系統從初始建立到 Claude Code 原生工作模式的完整演進歷程。">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0f0c29;
+      --bg2: #16122e;
+      --line: rgba(196,113,245,0.3);
+      --accent: #c471f5;
+      --accent2: #fa71cd;
+      --text: rgba(255,255,255,0.92);
+      --text-sub: rgba(255,255,255,0.45);
+      --text-dim: rgba(255,255,255,0.22);
+      --dot-start:  #FF6B35;
+      --dot-feature:#4A90D9;
+      --dot-ai:     #c471f5;
+      --dot-arch:   #2ECC71;
+      --dot-story:  #fa71cd;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', 'Noto Sans TC', sans-serif;
+      min-height: 100vh;
+      line-height: 1.6;
+    }
+
+    /* ── Header ── */
+    header {
+      position: sticky; top: 0; z-index: 50;
+      display: flex; align-items: center; gap: 10px;
+      padding: 12px 32px;
+      background: rgba(15,12,41,0.9);
+      backdrop-filter: blur(20px);
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    .hdr-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      flex-shrink: 0;
+    }
+    .hdr-title { font-size: 0.82rem; font-weight: 600; letter-spacing: 0.02em; }
+    .hdr-sub { margin-left: auto; font-size: 0.72rem; color: var(--text-dim); }
+
+    /* ── Hero ── */
+    .hero {
+      max-width: 780px; margin: 0 auto;
+      padding: 80px 32px 56px;
+      text-align: center;
+    }
+    .tag {
+      display: inline-block;
+      font-size: 0.65rem; font-weight: 700;
+      letter-spacing: 0.14em; text-transform: uppercase;
+      color: var(--accent);
+      background: rgba(196,113,245,0.1);
+      border: 1px solid rgba(196,113,245,0.22);
+      border-radius: 999px; padding: 4px 14px;
+      margin-bottom: 22px;
+    }
+    .hero h1 {
+      font-size: clamp(1.9rem, 5vw, 2.8rem);
+      font-weight: 800; line-height: 1.15;
+      background: linear-gradient(135deg, #fff 40%, rgba(196,113,245,0.75));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .hero-en {
+      font-size: 0.95rem; color: var(--text-sub);
+      font-weight: 300; margin-top: 10px;
+    }
+    .stats {
+      display: flex; justify-content: center; gap: 32px; flex-wrap: wrap;
+      margin-top: 40px;
+    }
+    .stat { text-align: center; }
+    .stat-n {
+      font-size: 1.8rem; font-weight: 800;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text; display: block;
+    }
+    .stat-l { font-size: 0.68rem; color: var(--text-dim); letter-spacing: 0.05em; margin-top: 2px; }
+
+    /* ── Section divider ── */
+    .divider {
+      width: 36px; height: 2px;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      border-radius: 2px; margin: 0 auto 60px;
+    }
+
+    /* ── Section heading ── */
+    .section-wrap { max-width: 780px; margin: 0 auto; padding: 0 32px 80px; }
+    .section-tag { font-size: 0.65rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); display: block; text-align: center; margin-bottom: 10px; }
+    .section-h2 { font-size: 1.5rem; font-weight: 700; text-align: center; margin-bottom: 60px; }
+
+    /* ── Timeline track ── */
+    .track {
+      position: relative;
+      padding-left: 28px;
+    }
+    .track::before {
+      content: '';
+      position: absolute; left: 6px; top: 6px; bottom: 6px; width: 1px;
+      background: linear-gradient(to bottom, transparent, var(--accent) 8%, var(--accent2) 92%, transparent);
+    }
+
+    /* ── Timeline item ── */
+    .item {
+      position: relative;
+      padding: 0 0 44px 28px;
+      opacity: 0; transform: translateY(14px);
+      transition: opacity 0.5s ease, transform 0.5s ease;
+    }
+    .item.visible { opacity: 1; transform: translateY(0); }
+
+    /* dot */
+    .item::before {
+      content: '';
+      position: absolute; left: 0; top: 6px;
+      width: 13px; height: 13px; border-radius: 50%;
+      border: 2px solid var(--bg);
+      background: var(--dot-color, var(--accent));
+      box-shadow: 0 0 8px var(--dot-color, var(--accent));
+      z-index: 1;
+    }
+
+    /* meta row */
+    .item-meta {
+      display: flex; align-items: center; gap: 10px;
+      margin-bottom: 6px;
+    }
+    .item-date { font-size: 0.72rem; color: var(--text-sub); letter-spacing: 0.04em; }
+    .item-badge {
+      font-size: 0.58rem; font-weight: 700; letter-spacing: 0.1em;
+      text-transform: uppercase; padding: 2px 8px; border-radius: 999px;
+      border: 1px solid currentColor; opacity: 0.7;
+    }
+
+    /* title */
+    .item-zh { font-size: 1.05rem; font-weight: 700; line-height: 1.3; margin-bottom: 2px; }
+    .item-en { font-size: 0.78rem; color: var(--text-sub); font-weight: 400; margin-bottom: 8px; }
+
+    /* detail — collapsed by default, expand on hover */
+    .item-detail {
+      max-height: 0; overflow: hidden; opacity: 0;
+      transition: max-height 0.35s ease, opacity 0.25s ease;
+    }
+    .item:hover .item-detail,
+    .item:focus-within .item-detail {
+      max-height: 120px; opacity: 1;
+    }
+    .item-detail-inner {
+      font-size: 0.78rem; color: var(--text-sub); line-height: 1.65;
+      padding-top: 6px;
+      border-top: 1px solid rgba(255,255,255,0.07);
+    }
+    .item-hint {
+      font-size: 0.62rem; color: var(--text-dim);
+      margin-top: 4px; display: block;
+      transition: opacity 0.2s;
+    }
+    .item:hover .item-hint { opacity: 0; }
+
+    /* ── Story section ── */
+    .story-wrap {
+      max-width: 780px; margin: 0 auto; padding: 0 32px 100px;
+    }
+    .story-section-bg {
+      background: var(--bg2);
+      border-radius: 20px; padding: 52px 48px;
+      border: 1px solid rgba(255,255,255,0.07);
+    }
+
+    .story-item {
+      position: relative; padding: 0 0 44px 28px;
+      opacity: 0; transform: translateY(14px);
+      transition: opacity 0.5s ease, transform 0.5s ease;
+    }
+    .story-item.visible { opacity: 1; transform: translateY(0); }
+
+    .story-track {
+      position: relative; padding-left: 28px;
+    }
+    .story-track::before {
+      content: '';
+      position: absolute; left: 6px; top: 6px; bottom: 6px; width: 1px;
+      background: linear-gradient(to bottom, transparent, rgba(250,113,205,0.5) 10%, rgba(250,113,205,0.5) 90%, transparent);
+    }
+    .story-item::before {
+      content: '';
+      position: absolute; left: 0; top: 6px;
+      width: 13px; height: 13px; border-radius: 50%;
+      border: 2px solid var(--bg2);
+      background: var(--accent2);
+      box-shadow: 0 0 8px var(--accent2);
+      z-index: 1;
+    }
+
+    .story-meta { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+    .story-date { font-size: 0.72rem; color: var(--text-sub); letter-spacing: 0.04em; }
+    .story-label {
+      font-size: 0.58rem; font-weight: 700; letter-spacing: 0.1em;
+      text-transform: uppercase; padding: 2px 8px; border-radius: 999px;
+      color: var(--accent2); border: 1px solid rgba(250,113,205,0.4); opacity: 0.8;
+    }
+    .story-title { font-size: 1.0rem; font-weight: 700; line-height: 1.3; margin-bottom: 6px; }
+    .story-quote {
+      font-size: 0.78rem; color: var(--text-sub);
+      border-left: 2px solid rgba(250,113,205,0.35);
+      padding-left: 12px; margin: 8px 0;
+      font-style: italic; line-height: 1.6;
+    }
+    .story-body { font-size: 0.78rem; color: var(--text-sub); line-height: 1.65; }
+
+    /* ── Footer ── */
+    footer {
+      text-align: center; padding: 40px 24px;
+      border-top: 1px solid rgba(255,255,255,0.06);
+      font-size: 0.7rem; color: var(--text-dim);
+    }
+
+    /* ── Category colors ── */
+    .c-start   { --dot-color: var(--dot-start);   color: var(--dot-start); }
+    .c-feature { --dot-color: var(--dot-feature); color: var(--dot-feature); }
+    .c-ai      { --dot-color: var(--dot-ai);      color: var(--dot-ai); }
+    .c-arch    { --dot-color: var(--dot-arch);     color: var(--dot-arch); }
+
+    /* ── Responsive ── */
+    @media (max-width: 520px) {
+      .hero { padding: 56px 20px 40px; }
+      .section-wrap, .story-wrap { padding-left: 20px; padding-right: 20px; }
+      .story-section-bg { padding: 36px 24px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+  <div class="hdr-dot"></div>
+  <span class="hdr-title">週報儀表板 · 系統演進</span>
+  <span class="hdr-sub">Dashboard Evolution Timeline</span>
+</header>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="tag">Project Evolution</div>
+  <h1>26 天，從腳本到 AI 原生工作流</h1>
+  <p class="hero-en">26 Days · From Script to AI-Native Workflow</p>
+  <div class="stats">
+    <div class="stat"><span class="stat-n">10</span><span class="stat-l">里程碑 Milestones</span></div>
+    <div class="stat"><span class="stat-n">26</span><span class="stat-l">演進天數 Days</span></div>
+    <div class="stat"><span class="stat-n">365</span><span class="stat-l">對話次數 Prompts</span></div>
+    <div class="stat"><span class="stat-n">99.5%</span><span class="stat-l">Token 節省 Saved</span></div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- Milestone Timeline -->
+<div class="section-wrap">
+  <span class="section-tag">系統演進</span>
+  <h2 class="section-h2">關鍵里程碑</h2>
+  <div class="track" id="track"></div>
+</div>
+
+<div class="divider"></div>
+
+<!-- AI Interaction Stories -->
+<div class="story-wrap">
+  <span class="section-tag">真實對話</span>
+  <h2 class="section-h2">與 AI 互動的有趣時刻</h2>
+  <div class="story-section-bg">
+    <div class="story-track" id="story-track"></div>
+  </div>
+</div>
+
+<!-- Footer -->
+<footer>由 GitHub 部署　｜　Claude Code 協力打造　｜　最後更新於 2026-04-10</footer>
+
+<script>
+/* ── Milestones ── */
+const MILESTONES = [
+  {
+    date:"2026 / 03 / 15", cat:"start", label:"起點",
+    zh:"週報系統誕生", en:"Dashboard Born",
+    detail:"Wekan 看板 JSON → 互動式 HTML 週報；team_config.json 外部化，單一腳本支援多部門，零改程式碼即可換看板。"
+  },
+  {
+    date:"2026 / 03 / 17", cat:"feature", label:"功能",
+    zh:"KPI 重整 + 父子任務結構", en:"KPI Redesign + Task Hierarchy",
+    detail:"9 個 KPI 卡片重構；父子任務依狀態分群展開；新增即將到期風險摘要卡，讓主管一眼看清風險。"
+  },
+  {
+    date:"2026 / 03 / 21", cat:"ai", label:"AI",
+    zh:"AI 分析 Tab 首次引入", en:"AI Analysis Integrated",
+    detail:"v6.11：第三主 Tab「AI 分析」。四個資料區塊一鍵結構化複製給 AI，結束每週手動整理的時代。"
+  },
+  {
+    date:"2026 / 03 / 22", cat:"feature", label:"功能",
+    zh:"成果亮點 Tab + 開源準備", en:"Milestone Tab + Open Source Ready",
+    detail:"v6.18：自動抓取里程碑標籤卡片、追蹤進度；同步加入 demo board、requirements.txt 供外部快速上手。"
+  },
+  {
+    date:"2026 / 03 / 28", cat:"arch", label:"架構",
+    zh:"程式架構重構（Jinja2 模板化）", en:"Architecture Refactored",
+    detail:"v7.0：4,370 行巨石 → 484 行 Python + template/ 獨立拆檔（CSS 879行、JS 2,462行）。run.bat 一鍵執行。"
+  },
+  {
+    date:"2026 / 03 / 28", cat:"ai", label:"AI",
+    zh:"Cowork AI 橋接工作流", en:"Cowork AI Bridge",
+    detail:"v7.1–v7.9：瀏覽器 File System API 橋接；IndexedDB 一鍵授權；Prompt 版本快照；ai_data.json 節省 99.5% token。"
+  },
+  {
+    date:"2026 / 03 / 29", cat:"arch", label:"架構",
+    zh:"AI 原生方法論確立", en:"AI-Native Methodology",
+    detail:"確立 TRIGGERS / PRECONDITIONS / GATE / EXECUTION 四段式結構。Skill vs Plugin 場景釐清，建立 Skill-first 原則。"
+  },
+  {
+    date:"2026 / 03 / 30", cat:"arch", label:"架構",
+    zh:"Skill 架構重構", en:"Skill Architecture Born",
+    detail:"CLAUDE.md 從 400+ 行壓縮至 slim 45 行；8 個 AI 原生 SKILL.md 各自承載完整任務邏輯。"
+  },
+  {
+    date:"2026 / 04 / 05", cat:"ai", label:"AI",
+    zh:"Token 節省架構（99.5% ↓）", en:"Token Efficiency (99.5%↓)",
+    detail:"wekan_weekly_filter.py：1,042 張卡片 → 50 行摘要（~750 tokens），搭配 Windows Task Scheduler 自動執行。"
+  },
+  {
+    date:"2026 / 04 / 10", cat:"arch", label:"架構",
+    zh:"Claude Code 本機工作模式", en:"Claude Code Native Mode",
+    detail:"從 Cowork 網頁介面切換至 Claude Code 本機 CLI；git 由 Claude 直接操作；Skill 架構進入版本控制，工作流真正落地。"
+  }
+];
+
+const CAT_CLASS = { start:"c-start", feature:"c-feature", ai:"c-ai", arch:"c-arch" };
+
+function buildMilestones() {
+  const t = document.getElementById('track');
+  MILESTONES.forEach(m => {
+    const cc = CAT_CLASS[m.cat];
+    const el = document.createElement('div');
+    el.className = `item ${cc}`;
+    el.tabIndex = 0;
+    el.innerHTML = `
+      <div class="item-meta">
+        <span class="item-date">${m.date}</span>
+        <span class="item-badge">${m.label}</span>
+      </div>
+      <div class="item-zh">${m.zh}</div>
+      <div class="item-en">${m.en}</div>
+      <span class="item-hint">hover 查看詳情</span>
+      <div class="item-detail"><div class="item-detail-inner">${m.detail}</div></div>`;
+    t.appendChild(el);
+  });
+}
+
+/* ── Interaction Stories ── */
+const STORIES = [
+  {
+    date:"2026 / 03 / 07", label:"起手式",
+    title:"一份規格書，開啟一段旅程",
+    quote:"請把自己當成：1. 專案管理分析助理　2. 週報儀表板設計助理　3. Wekan 看板資料解讀者",
+    body:"第一則 prompt 就是一份完整的任務規格，不是問題，是目標。設定角色、定義成功標準、列出資料來源，這套提問方式奠定了整個協作的基調。"
+  },
+  {
+    date:"2026 / 03 / 09", label:"危機轉機",
+    title:"開電腦整個慢下來，滑鼠 20 秒才回應",
+    quote:"最近的版本，只要開啟 html 檔案，整個電腦就會很慢，連滑鼠都慢 20 秒才會回應，但只要關掉 html 就沒問題了。",
+    body:"危機變成催化劑。這個問題催生了 lazy render、dirty flag、Tab2 延遲初始化三層效能架構——如果沒有這次卡頓，這些機制可能不會這麼早出現。"
+  },
+  {
+    date:"2026 / 03 / 09", label:"自我反思",
+    title:"「我的 AI 協作方式夠好嗎？」",
+    quote:"我現在跟你的討論，有遵循 AI Fluency？有需要要在調整的地方，能節省 token 和離目標越來越近？",
+    body:"不只把 AI 當工具，開始把「AI 協作本身」當成優化對象。這是這個工作流從「使用 AI」走向「設計 AI 協作」的轉折點。"
+  },
+  {
+    date:"2026 / 03 / 21", label:"突破時刻",
+    title:"「AI 可以讀懂我的工作內容嗎？」",
+    quote:"我想透過 LLM 模型，透過閱讀我們新增卡片的內容，總結我們本周推展的方向。",
+    body:"一個好奇心驅動的問題，啟動了整個 AI 分析 Tab 的開發。從「看數字」到「讀懂工作」，是思維上的重要跨越。"
+  },
+  {
+    date:"2026 / 03 / 22", label:"方法論",
+    title:"「Cowork 不能 git，那 Claude Code 呢？」",
+    quote:"對了，是因為我在 cowork 模式，所以不能自己上 git 和打 wekan api？如果我在 claude code 模式就能進行自動化處理？",
+    body:"就是這一句話，種下了後來切換至 Claude Code 的種子。從限制出發的提問，往往指向最關鍵的架構決策。"
+  },
+  {
+    date:"2026 / 03 / 29", label:"哲學時刻",
+    title:"「我的 AI 協作邏輯，和別人不一樣嗎？」",
+    quote:"我運用 AI 有屬於自己一套底層邏輯，可以遷移到其他地方嗎？我的使用方式有符合使用 AI 的第一性原理？",
+    body:"開始往方法論層次思考。這一天確立了 AI 原生 CLAUDE.md 格式，也確立了「人設計流程，AI 執行流程」的核心原則。"
+  },
+  {
+    date:"2026 / 04 / 10", label:"工具升級",
+    title:"第一天打開 Claude Code",
+    quote:"我之前都是透過 cowork 進行這個儀表板的開發，請以這個專案，說明 cowork 和 claude code 的差異性，我操作步驟的差異性。",
+    body:"工作模式正式轉換。Claude Code 能直接操作 git、讀寫本機檔案、執行腳本，從「對話協作」升級為「代碼原生協作」。也是本篇時間軸的終點。"
+  }
+];
+
+function buildStories() {
+  const t = document.getElementById('story-track');
+  STORIES.forEach(s => {
+    const el = document.createElement('div');
+    el.className = 'story-item';
+    el.innerHTML = `
+      <div class="story-meta">
+        <span class="story-date">${s.date}</span>
+        <span class="story-label">${s.label}</span>
+      </div>
+      <div class="story-title">${s.title}</div>
+      <div class="story-quote">${s.quote}</div>
+      <div class="story-body">${s.body}</div>`;
+    t.appendChild(el);
+  });
+}
+
+/* ── Intersection Observer ── */
+function observe(selector) {
+  const obs = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting) { e.target.classList.add('visible'); obs.unobserve(e.target); }
+    });
+  }, { threshold: 0.12 });
+  document.querySelectorAll(selector).forEach((el, i) => {
+    setTimeout(() => obs.observe(el), i * 60);
+  });
+}
+
+buildMilestones();
+buildStories();
+observe('.item');
+observe('.story-item');
+</script>
+</body>
+</html>
