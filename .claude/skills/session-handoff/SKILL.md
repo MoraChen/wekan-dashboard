@@ -34,6 +34,7 @@ description: Session 交接與任務完成通用清單。觸發語句：「結�
 3. 檢查反思觸發：若本 session 後累計訊息達 50 的倍數 → 追加 `reflection.md`（依 REF_REFLECTION 格式）
 4. 更新 CLAUDE.md「當前狀態」（確認已含最新 prompt.md 序號）
 5. 輸出交接筆記（依 REF_HANDOFF_NOTE 格式）
+5.5 執行 task-h-gdrive-upload（上傳最新 HTML ＋ 補新 AI分析結果/*.md 到 Google Drive）
 6. 詢問是否上 git → 使用者確認後，Claude 直接執行：
    ```
    git add Changelog.md PLAYBOOK.md [其他本次異動的可上傳檔案]
