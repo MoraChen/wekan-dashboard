@@ -32,7 +32,14 @@ description: Session 交接與任務完成通用清單。觸發語句：「結�
 1. 執行上方「任務完成通用清單」步驟 1–4（若尚未完成）
 2. 追加對話記錄到 `prompt.md`（依 REF_PROMPT 步驟）
 3. 檢查反思觸發：若本 session 後累計訊息達 50 的倍數 → 追加 `reflection.md`（依 REF_REFLECTION 格式）
+   - reflection.md 的焦點是**Mora 與 AI 的溝通品質**（什麼問法有效、什麼造成來回、下次怎麼問更好），不記錄技術卡點（技術卡點寫 KM_trace.md）
 4. 更新 CLAUDE.md「當前狀態」（確認已含最新 prompt.md 序號）
+4.5 卡點回顧 → 寫入 KM_trace.md（依 REF_KM_TRACE 格式）：
+   - 回顧本次 session 遭遇的卡點（工具失敗、流程繞路、驗證無法完成等）
+   - 每個卡點追加一條記錄到 `KM_trace.md`，需包含反思的兩個欄位（盲點來源 + 下次觸發點）
+   - 更新 KM_trace.md 頂部「模式統計」表（新增標籤或累計次數）
+   - 同步更新 CLAUDE.md 的「已知卡點」表：新增 active 卡點、已解決的改為 resolved 並移除
+   - 若某卡點的「下次觸發點」指向特定 SKILL.md，在交接筆記的「待確認事項」中標注建議修改
 5. 輸出交接筆記（依 REF_HANDOFF_NOTE 格式）
 5.5 執行 task-h-gdrive-upload（上傳最新 HTML ＋ 補新 AI分析結果/*.md 到 Google Drive）
 6. 詢問是否上 git → 使用者確認後，Claude 直接執行：
@@ -70,6 +77,24 @@ description: Session 交接與任務完成通用清單。觸發語句：「結�
 ### 本期可以改善的地方
 ### 下期優化重點
 ```
+
+## [REF_KM_TRACE]
+每個卡點新增一個區塊，ID 格式 `KM-NNN`（接續最後一個編號）：
+```markdown
+### [KM-NNN] 卡點標題
+
+- **日期**：YYYY-MM-DD
+- **狀態**：active / resolved
+- **標籤**：#標籤1 #標籤2
+- **現象**：使用者或 Claude 觀察到的表面問題
+- **根因**：導致問題的技術或流程根本原因
+- **嘗試過的方法**：
+- **最終解法 / 繞路方式**：
+- **反思**：
+  - **盲點來源**：當初為什麼沒想到？（假設錯誤 / 缺少前置確認 / skill 流程缺口）
+  - **下次觸發點**：下次執行到哪個步驟時應主動提醒？（session 開始 / 執行某 skill 前 / 特定條件出現時）
+```
+標籤參考：`#環境差異` `#前置條件未檢查` `#api_auth` `#file_protocol` `#gdrive` `#wekan` `#skill_設計缺口`
 
 ## [REF_HANDOFF_NOTE]
 ```
