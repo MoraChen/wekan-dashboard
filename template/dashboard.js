@@ -902,7 +902,7 @@ function startPolling() {
     if (!_projDirHandle) return;
     const statusEl = document.getElementById('ai-request-status');
     if (statusEl) {
-        statusEl.textContent = '⏳ 等待 Cowork 分析完成… (每 8 秒自動偵測)';
+        statusEl.textContent = '⏳ 等待分析完成… (每 8 秒自動偵測)';
         statusEl.style.color = '#888';
     }
     _pollTimer = setInterval(checkForNewAnalysis, 8000);
@@ -956,9 +956,20 @@ async function _autoLoadFile(file) {
     }
 }
 
-function initPromptEditor() {
+async function initPromptEditor() {
     const ta = document.getElementById('ai-prompt-textarea');
-    if (ta && !ta.value) {
+    if (!ta) return;
+    // 優先從磁碟讀取最新版本，避免顯示 HTML 內嵌的舊快照
+    if (_projDirHandle) {
+        try {
+            const fh   = await _projDirHandle.getFileHandle('ai_prompt_template.md');
+            const file = await fh.getFile();
+            ta.value   = await file.text();
+            return;
+        } catch(e) { /* 檔案不存在，fallback 到內嵌值 */ }
+    }
+    // Fallback：尚未選資料夾，或檔案不存在時使用 HTML 內嵌版本
+    if (!ta.value) {
         ta.value = typeof AI_PROMPT_TEMPLATE !== 'undefined' ? AI_PROMPT_TEMPLATE : '';
     }
 }
@@ -970,7 +981,7 @@ function togglePromptSection() {
     const isOpen = body.style.display !== 'none';
     body.style.display = isOpen ? 'none' : 'block';
     if (icon) icon.textContent = isOpen ? '▸' : '▾';
-    if (!isOpen) initPromptEditor();
+    if (!isOpen) initPromptEditor(); // async，fire-and-forget 即可
 }
 
 function onPromptInput() {
@@ -1164,9 +1175,17 @@ async function savePromptTemplate() {
     }
 }
 
-function getCurrentPrompt() {
+async function getCurrentPrompt() {
     const ta = document.getElementById('ai-prompt-textarea');
     if (ta && ta.value) return ta.value;
+    // textarea 尚未展開時，直接從磁碟讀取最新 prompt
+    if (_projDirHandle) {
+        try {
+            const fh   = await _projDirHandle.getFileHandle('ai_prompt_template.md');
+            const file = await fh.getFile();
+            return await file.text();
+        } catch(e) {}
+    }
     return typeof AI_PROMPT_TEMPLATE !== 'undefined' ? AI_PROMPT_TEMPLATE : '';
 }
 
@@ -1186,7 +1205,7 @@ async function generateAIRequest() {
     const today = `${now.getFullYear()}/${pad(now.getMonth()+1)}/${pad(now.getDate())}`;
     const ts    = `${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
 
-    const template   = getCurrentPrompt();
+    const template   = await getCurrentPrompt();
     const promptMeta = await _loadPromptMeta();
 
     // 方案 B：ai_request.json 只存 prompt 模板與中繼資訊（不含 Wekan 資料）
@@ -1207,7 +1226,7 @@ async function generateAIRequest() {
         const writable = await fh.createWritable({ keepExistingData: false });
         await writable.write(JSON.stringify(requestObj, null, 2));
         await writable.close();
-        setStatus('✅ 請求已產生！請切換到 Cowork 說「分析」', '#2e7d32');
+        setStatus('✅ 請求已產生！請切換到 Cowork 說「分析」，或直接執行 run_ai_analysis.bat', '#2e7d32');
         setWorkflowStep(2, true);
         _requestGeneratedAt = new Date();
         startPolling();

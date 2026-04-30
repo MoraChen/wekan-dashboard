@@ -13,9 +13,12 @@ Wekan 週報儀表板更新腳本
 注意：每次執行都會產生新的 HTML 檔，舊的不會被覆蓋。
 """
 
-import json, os, glob, re
+import json, os, glob, re, sys
 from datetime import datetime, timezone, timedelta
 from collections import defaultdict
+
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
 # ── 設定 ────────────────────────────────────────────────
 BASE_DIR  = os.path.dirname(os.path.abspath(__file__))
@@ -587,8 +590,10 @@ html = template.render(
     due_soon_end_json        = DUE_SOON_END_JSON,
 )
 
-with open(OUT_FILE, "w", encoding="utf-8") as f:
+tmp_file = OUT_FILE + ".tmp"
+with open(tmp_file, "w", encoding="utf-8") as f:
     f.write(html)
+os.replace(tmp_file, OUT_FILE)
 print(f"🎉 儀表板已產生：{os.path.basename(OUT_FILE)}")
 print(f"   路徑：{OUT_FILE}")
 

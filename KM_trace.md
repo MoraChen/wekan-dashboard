@@ -11,10 +11,11 @@
 
 | 標籤 | 次數 | 最近一次 |
 |------|------|---------|
-| #環境差異 | 3 | 2026-04-13 |
+| #環境差異 | 4 | 2026-05-01 |
 | #前置條件未檢查 | 3 | 2026-04-13 |
 | #轉義錯誤 | 2 | 2026-03-28 |
 | #全域作用域衝突 | 2 | 2026-03-28 |
+| #寫入競爭 | 1 | 2026-05-01 |
 | #api_變更 | 1 | 2026-04-10 |
 | #filter_不一致 | 1 | 2026-04-11 |
 | #資料污染 | 1 | 2026-04-11 |
@@ -243,3 +244,24 @@
 - **反思**：
   - **盲點來源**：工具失敗後直接改用替代方案（`preview_eval`），沒有深究失敗原因；如果根因是「preview server 未啟動」，重啟後兩個工具可能恢復，但沒有嘗試。
   - **下次觸發點**：`preview_screenshot` 或 `preview_snapshot` 失敗時，先嘗試 `preview_start` 重啟 preview server，確認 server 狀態後再重試工具；若仍失敗才改用 `preview_eval` 作為替代，並在交接筆記標注「QC 無視覺截圖」。
+
+---
+
+### [KM-016] 大型 HTML 寫入過程被中斷，JS 末尾截斷導致 Tab 失效（第二次發生）
+
+- **日期**：2026-05-01
+- **狀態**：resolved
+- **標籤**：#環境差異 #寫入競爭
+- **現象**：`update_dashboard.py` 產出的 HTML 末尾 846 chars 缺失（`clearAllChips2` + `DOMContentLoaded` 入口），造成瀏覽器重新整理後所有 Tab 按鈕無法點擊（事件監聽器從未被綁定）。兩次發生時的截斷大小分別為 846 / 842 chars，不完全相同，但截斷點位置一致（`clearAllChips1` 函式內部）。
+- **根因**：HTML 寫入（`f.write(html)`）在 1MB+ 大型檔案的 OS buffer flush 過程中被外部中斷（最可能：OneDrive sync 同時搶鎖、或 `wekan_sync_auto.bat` 觸發的 `update_dashboard.py` subprocess 與使用者手動執行發生競爭）。Python `with open` 的 `__exit__` 呼叫 `close()` 時未完全 flush 即中止，留下截斷版 HTML。Jinja2 渲染本身正常（用真實資料測試確認），`dashboard.js` 無 Jinja2 特殊序列。
+- **嘗試過的方法**：
+  1. 排查 Jinja2 模板特殊序列（無匹配）
+  2. 排查 `data_json` 含 `</script>`（無）
+  3. 排查 Windows Task Scheduler（無相關任務）
+  4. 用最小資料和真實 prompt template 分別測試 Jinja2 渲染（均正常）
+- **最終解法**：
+  1. `update_dashboard.py` 頂部加 `sys.stdout.reconfigure(encoding='utf-8', errors='replace')`（防止 emoji print 在 cp950 環境 crash）
+  2. HTML 寫入改為原子模式：`tmp_file = OUT_FILE + ".tmp"` → `f.write(html)` → `os.replace(tmp_file, OUT_FILE)`；任何中斷只影響 `.tmp`，不影響正式 HTML
+- **反思**：
+  - **盲點來源**：第一次發生時，以為是 `python -X utf8` 解決了問題（實際上只是下一次執行時沒有被中斷）；沒有意識到 1MB 大型檔案在 OneDrive 目錄下有寫入競爭風險，也沒有主動加原子寫入防禦。
+  - **下次觸發點**：任何在 OneDrive / 雲端同步目錄下寫入 500KB 以上檔案的腳本，一律使用 write-to-tmp + `os.replace()` 原子模式；驗收時確認 HTML 含 `DOMContentLoaded` 字串（`grep -c DOMContentLoaded 週報儀表板_*.html` 應為 1）。
